@@ -8,7 +8,15 @@ import { useCountdown } from "@/hooks/use-countdown";
 import { useSegmentation } from "@/hooks/use-segmentation";
 import { captureFrame } from "@/lib/camera";
 import { applyMask } from "@/lib/mask";
-import { createRoom, uploadAllCutouts, updateRoom, getRoomUrl } from "@/lib/rooms";
+import { generateStrip } from "@/lib/composite";
+import {
+  createRoom,
+  uploadAllCutouts,
+  updateRoom,
+  getRoomUrl,
+  subscribeToRoom,
+} from "@/lib/rooms";
+import type { Room } from "@/types/room";
 import type { LutPreset } from "@/lib/lut";
 import Viewfinder from "@/components/viewfinder";
 import CountdownOverlay from "@/components/countdown-overlay";
@@ -16,10 +24,11 @@ import ShutterFlash from "@/components/shutter-flash";
 import ShotCounter from "@/components/shot-counter";
 import LutPicker from "@/components/lut-picker";
 import ShareCard from "@/components/share-card";
+import StripResult from "@/components/strip-result";
 
 const TOTAL_SHOTS = 4;
 
-type Phase = "ready" | "shooting" | "uploading" | "waiting";
+type Phase = "ready" | "shooting" | "uploading" | "waiting" | "compositing" | "done";
 
 export default function CreatePage() {
   const { videoRef, ready, error, start, stop, flip } = useCamera();
@@ -30,8 +39,10 @@ export default function CreatePage() {
   const [shotCount, setShotCount] = useState(0);
   const [flash, setFlash] = useState(false);
   const [lut, setLut] = useState<LutPreset>("warm-film");
+  const [room, setRoom] = useState<Room | null>(null);
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [roomUrl, setRoomUrl] = useState<string | null>(null);
+  const [stripUrl, setStripUrl] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const cutoutsRef = useRef<string[]>([]);
@@ -40,6 +51,46 @@ export default function CreatePage() {
     start("user");
     seg.init();
   }, [start, seg.init]);
+
+  // subscribe to room — when guest completes, auto-composite the duet strip
+  useEffect(() => {
+    if (!room || phase !== "waiting") return;
+
+    return subscribeToRoom(room.id, async (updated) => {
+      if (updated.status === "complete") {
+        setPhase("compositing");
+
+        // build guest cutout urls
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const guestUrls = Array.from({ length: TOTAL_SHOTS }, (_, i) =>
+          `${supabaseUrl}/storage/v1/object/public/cutouts/${room.id}/guest-${i}.png`,
+        );
+
+        try {
+          const strip = await generateStrip({
+            cutouts: cutoutsRef.current,
+            partnerCutouts: guestUrls,
+            lut,
+            grain: true,
+            vignette: true,
+          });
+          setStripUrl(strip);
+          setPhase("done");
+        } catch (e) {
+          console.error("[duet] compositing failed on host side", e);
+          // fallback: just show host's own strip
+          const strip = await generateStrip({
+            cutouts: cutoutsRef.current,
+            lut,
+            grain: true,
+            vignette: true,
+          });
+          setStripUrl(strip);
+          setPhase("done");
+        }
+      }
+    });
+  }, [room, phase, lut]);
 
   const shoot = useCallback(async () => {
     if (!videoRef.current || !ready || !seg.ready) return;
@@ -60,17 +111,17 @@ export default function CreatePage() {
       setShotCount(i + 1);
     }
 
-    // create room + upload
     setPhase("uploading");
     stop();
 
     try {
-      const room = await createRoom(lut);
-      await uploadAllCutouts(room.id, "host", cutoutsRef.current);
-      await updateRoom(room.id, { status: "waiting" });
+      const newRoom = await createRoom(lut);
+      await uploadAllCutouts(newRoom.id, "host", cutoutsRef.current);
+      await updateRoom(newRoom.id, { status: "waiting" });
 
-      setRoomCode(room.short_code);
-      setRoomUrl(getRoomUrl(room.short_code));
+      setRoom(newRoom);
+      setRoomCode(newRoom.short_code);
+      setRoomUrl(getRoomUrl(newRoom.short_code));
       setPhase("waiting");
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : "upload failed");
@@ -78,6 +129,43 @@ export default function CreatePage() {
       start("user");
     }
   }, [ready, seg.ready, videoRef, runCountdown, seg.segment, stop, lut, start]);
+
+  const regrade = useCallback(
+    async (preset: LutPreset) => {
+      setLut(preset);
+      if (phase !== "done" || cutoutsRef.current.length === 0) return;
+
+      setPhase("compositing");
+
+      const guestUrls = room
+        ? Array.from({ length: TOTAL_SHOTS }, (_, i) =>
+            `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/cutouts/${room.id}/guest-${i}.png`,
+          )
+        : undefined;
+
+      const strip = await generateStrip({
+        cutouts: cutoutsRef.current,
+        partnerCutouts: guestUrls,
+        lut: preset,
+        grain: true,
+        vignette: true,
+      });
+      setStripUrl(strip);
+      setPhase("done");
+    },
+    [phase, room],
+  );
+
+  const retake = useCallback(() => {
+    cutoutsRef.current = [];
+    setShotCount(0);
+    setStripUrl(null);
+    setRoom(null);
+    setRoomCode(null);
+    setRoomUrl(null);
+    setPhase("ready");
+    start("user");
+  }, [start]);
 
   const modelReady = seg.ready && ready;
   const modelLoading = seg.loading || !ready;
@@ -98,13 +186,14 @@ export default function CreatePage() {
           transition={{ delay: 0.2 }}
           className="text-[10px] tracking-wider text-[#D4A574] uppercase sm:text-xs"
         >
-          create room
+          {phase === "done" ? "your duet" : "create room"}
         </motion.span>
       </header>
 
       <div className="flex flex-1 flex-col items-center justify-center px-4 pb-[max(env(safe-area-inset-bottom),2rem)] sm:px-6">
         <AnimatePresence mode="wait">
-          {phase !== "waiting" ? (
+          {/* camera phase */}
+          {(phase === "ready" || phase === "shooting" || phase === "uploading") && (
             <motion.div
               key="camera"
               initial={{ opacity: 0 }}
@@ -173,7 +262,7 @@ export default function CreatePage() {
                   className="group relative flex h-14 w-14 items-center justify-center rounded-full bg-[#2C2C2A] transition-all duration-300 hover:scale-105 active:scale-95 disabled:opacity-30 sm:h-16 sm:w-16"
                   aria-label="take photos and create room"
                 >
-                  <span className="absolute inset-0 rounded-full border-2 border-[#2C2C2A]/20 transition-all duration-300 group-hover:border-[#D4A574]/40" />
+                  <span className="absolute inset-0 rounded-full border-2 border-[#2C2C2A]/20 group-hover:border-[#D4A574]/40" />
                   <Camera size={18} className="text-[#F5F2EA] sm:h-5 sm:w-5" />
                 </button>
 
@@ -191,7 +280,10 @@ export default function CreatePage() {
                 </motion.p>
               )}
             </motion.div>
-          ) : (
+          )}
+
+          {/* waiting for guest */}
+          {(phase === "waiting" || phase === "compositing") && (
             <motion.div
               key="share"
               initial={{ opacity: 0 }}
@@ -200,18 +292,51 @@ export default function CreatePage() {
               className="flex flex-col items-center gap-6"
             >
               {roomCode && roomUrl && (
-                <>
-                  <ShareCard url={roomUrl} code={roomCode} />
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.5 }}
-                    className="max-w-[250px] text-center text-[10px] leading-relaxed tracking-wide text-[#8A8780] sm:text-xs"
-                  >
-                    waiting for your friend to join and take their photos...
-                  </motion.p>
-                </>
+                <ShareCard url={roomUrl} code={roomCode} />
               )}
+
+              {phase === "waiting" && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.5 }}
+                  className="flex items-center gap-2"
+                >
+                  <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#D4A574]" />
+                  <p className="text-[10px] tracking-wide text-[#8A8780] sm:text-xs">
+                    waiting for your friend...
+                  </p>
+                </motion.div>
+              )}
+
+              {phase === "compositing" && (
+                <div className="flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin text-[#8A8780]" />
+                  <p className="text-[10px] tracking-wide text-[#8A8780] sm:text-xs">
+                    your friend joined! compositing...
+                  </p>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* result */}
+          {phase === "done" && stripUrl && (
+            <motion.div
+              key="result"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.5 }}
+              className="flex flex-col items-center gap-6"
+            >
+              <StripResult stripUrl={stripUrl} onRetake={retake} />
+              <motion.div
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
+              >
+                <LutPicker value={lut} onChange={regrade} />
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>

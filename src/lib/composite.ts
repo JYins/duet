@@ -1,5 +1,9 @@
 // composites segmented portraits onto a shared background
 // and generates a korean-style 1x4 photo strip with LUT + grain + vignette
+//
+// supports two modes:
+// - solo: one person per frame (4 cutouts)
+// - duet: two people per frame (4 host cutouts + 4 guest cutouts)
 
 import { createLutRenderer, getLutByPreset, type LutPreset } from "./lut";
 import { applyGrain, applyVignette } from "./effects";
@@ -46,8 +50,37 @@ function roundRect(
   ctx.closePath();
 }
 
+// draw a cutout into a frame, positioned left/right/center
+function drawCutout(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  fx: number,
+  fy: number,
+  fw: number,
+  fh: number,
+  position: "left" | "right" | "center",
+) {
+  // scale to fit frame height
+  const scale = Math.min((fw * 0.65) / img.width, fh / img.height);
+  const cw = img.width * scale;
+  const ch = img.height * scale;
+
+  let cx: number;
+  if (position === "left") {
+    cx = fx + fw * 0.25 - cw / 2;
+  } else if (position === "right") {
+    cx = fx + fw * 0.75 - cw / 2;
+  } else {
+    cx = fx + (fw - cw) / 2;
+  }
+  const cy = fy + (fh - ch);
+
+  ctx.drawImage(img, cx, cy, cw, ch);
+}
+
 export interface CompositeOptions {
   cutouts: string[];
+  partnerCutouts?: string[]; // host's cutouts when in duet mode
   background?: string;
   lut?: LutPreset;
   grain?: boolean;
@@ -59,6 +92,7 @@ export interface CompositeOptions {
 export async function generateStrip(opts: CompositeOptions): Promise<string> {
   const {
     cutouts,
+    partnerCutouts,
     background,
     lut = "warm-film",
     grain = true,
@@ -67,7 +101,8 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     title,
   } = opts;
 
-  const totalH = STRIP_H + 60; // extra for date stamp
+  const isDuet = partnerCutouts && partnerCutouts.length > 0;
+  const totalH = STRIP_H + 60;
 
   const canvas = document.createElement("canvas");
   canvas.width = STRIP_W;
@@ -89,7 +124,8 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   }
 
   // draw each frame
-  for (let i = 0; i < Math.min(cutouts.length, STRIP_ROWS); i++) {
+  const frameCount = Math.min(cutouts.length, STRIP_ROWS);
+  for (let i = 0; i < frameCount; i++) {
     const x = PAD;
     const y = PAD + i * (FRAME_H + INNER_GAP);
 
@@ -114,18 +150,34 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
       ctx.fillRect(x, y, FRAME_W, FRAME_H);
     }
 
-    // cutout portrait
-    const cutout = await loadImage(cutouts[i]);
-    const cutScale = Math.min(FRAME_W / cutout.width, FRAME_H / cutout.height);
-    const cw = cutout.width * cutScale;
-    const ch = cutout.height * cutScale;
-    ctx.drawImage(
-      cutout,
-      x + (FRAME_W - cw) / 2,
-      y + (FRAME_H - ch) / 2,
-      cw,
-      ch,
-    );
+    if (isDuet && partnerCutouts[i]) {
+      // duet mode: two people per frame
+      // partner (host) on the left, self (guest) on the right
+      try {
+        const partner = await loadImage(partnerCutouts[i]);
+        drawCutout(ctx, partner, x, y, FRAME_W, FRAME_H, "left");
+      } catch {
+        // partner cutout failed to load, skip
+      }
+      const self = await loadImage(cutouts[i]);
+      drawCutout(ctx, self, x, y, FRAME_W, FRAME_H, "right");
+    } else {
+      // solo mode: single person centered
+      const cutout = await loadImage(cutouts[i]);
+      const cutScale = Math.min(
+        FRAME_W / cutout.width,
+        FRAME_H / cutout.height,
+      );
+      const cw = cutout.width * cutScale;
+      const ch = cutout.height * cutScale;
+      ctx.drawImage(
+        cutout,
+        x + (FRAME_W - cw) / 2,
+        y + (FRAME_H - ch) / 2,
+        cw,
+        ch,
+      );
+    }
 
     ctx.restore();
 
@@ -138,13 +190,12 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     ctx.restore();
   }
 
-  // ---- apply LUT to the photo area (not the white border) ----
+  // ---- apply LUT to the photo area ----
   if (lut !== "none") {
     try {
       const lutData = getLutByPreset(lut);
       const renderer = createLutRenderer(STRIP_W, STRIP_H);
       const graded = renderer.apply(canvas, lutData, 0.85);
-      // paste graded pixels back onto the photo area only
       ctx.putImageData(graded, 0, 0);
       renderer.dispose();
     } catch (e) {
@@ -152,7 +203,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     }
   }
 
-  // ---- grain + vignette on the photo area ----
+  // ---- grain + vignette ----
   if (grain) {
     applyGrain(ctx, canvas.width, STRIP_H, 0.04);
   }
@@ -160,7 +211,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     applyVignette(ctx, canvas.width, STRIP_H, 0.2);
   }
 
-  // re-draw the paper border area clean (grain/vignette may have bled)
+  // re-draw paper border clean
   ctx.fillStyle = "#FDFCF9";
   ctx.fillRect(0, STRIP_H, canvas.width, totalH - STRIP_H);
 

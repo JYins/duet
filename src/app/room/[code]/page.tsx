@@ -114,14 +114,13 @@ export default function RoomPage() {
       return;
     }
 
-    // composite: interleave host and guest into a combined strip
+    // composite: both people in each frame
     setPhase("compositing");
 
     try {
-      // for now: use guest's own cutouts for the strip
-      // TODO: merge host + guest cutouts side by side in each frame
       const strip = await generateStrip({
         cutouts: cutoutsRef.current,
+        partnerCutouts: hostCutoutUrls,
         lut,
         grain: true,
         vignette: true,
@@ -141,6 +140,7 @@ export default function RoomPage() {
       setPhase("compositing");
       const strip = await generateStrip({
         cutouts: cutoutsRef.current,
+        partnerCutouts: hostCutoutUrls,
         lut: preset,
         grain: true,
         vignette: true,
