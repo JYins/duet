@@ -1,25 +1,36 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Camera, RefreshCw, RotateCcw, Loader2 } from "lucide-react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Camera, RefreshCw, Loader2 } from "lucide-react";
 import { useCamera } from "@/hooks/use-camera";
 import { useCountdown } from "@/hooks/use-countdown";
 import { useSegmentation } from "@/hooks/use-segmentation";
 import { captureFrame } from "@/lib/camera";
 import { applyMask } from "@/lib/mask";
+import { generateStrip } from "@/lib/composite";
 import Viewfinder from "@/components/viewfinder";
 import CountdownOverlay from "@/components/countdown-overlay";
-import PhotoStrip from "@/components/photo-strip";
+import ShutterFlash from "@/components/shutter-flash";
+import ShotCounter from "@/components/shot-counter";
+import StripResult from "@/components/strip-result";
 
 const TOTAL_SHOTS = 4;
 
+type Phase = "ready" | "shooting" | "processing" | "done";
+
 export default function BoothPage() {
-  const { videoRef, ready, error, start, flip } = useCamera();
+  const { videoRef, ready, error, start, stop, flip } = useCamera();
   const { count, run: runCountdown } = useCountdown(3);
   const seg = useSegmentation();
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [cutouts, setCutouts] = useState<string[]>([]);
-  const [shooting, setShooting] = useState(false);
+
+  const [phase, setPhase] = useState<Phase>("ready");
+  const [shotCount, setShotCount] = useState(0);
+  const [flash, setFlash] = useState(false);
+  const [stripUrl, setStripUrl] = useState<string | null>(null);
+
+  // accumulate cutouts across the shooting loop
+  const cutoutsRef = useRef<string[]>([]);
 
   // start camera + load segmentation model in parallel
   useEffect(() => {
@@ -27,116 +38,182 @@ export default function BoothPage() {
     seg.init();
   }, [start, seg.init]);
 
-  const takePhoto = useCallback(async () => {
+  const shoot = useCallback(async () => {
     if (!videoRef.current || !ready || !seg.ready) return;
 
-    setShooting(true);
-    const newPhotos: string[] = [];
-    const newCutouts: string[] = [];
+    setPhase("shooting");
+    cutoutsRef.current = [];
+    setShotCount(0);
 
     for (let i = 0; i < TOTAL_SHOTS; i++) {
       await runCountdown();
 
-      // capture raw frame
-      const frame = captureFrame(videoRef.current);
-      newPhotos.push(frame);
-      setPhotos([...newPhotos]);
+      // flash
+      setFlash(true);
+      setTimeout(() => setFlash(false), 50);
 
-      // segment and extract portrait
+      // capture + segment
+      const frame = captureFrame(videoRef.current);
       const mask = await seg.segment(videoRef.current);
       const cutout = await applyMask(frame, mask);
-      newCutouts.push(cutout);
-      setCutouts([...newCutouts]);
+      cutoutsRef.current.push(cutout);
+      setShotCount(i + 1);
     }
 
-    setShooting(false);
-  }, [ready, seg.ready, videoRef, runCountdown, seg.segment]);
+    // generate composite strip
+    setPhase("processing");
+    stop(); // release camera while compositing
 
-  const reset = useCallback(() => {
-    setPhotos([]);
-    setCutouts([]);
-  }, []);
+    const strip = await generateStrip({ cutouts: cutoutsRef.current });
+    setStripUrl(strip);
+    setPhase("done");
+  }, [ready, seg.ready, videoRef, runCountdown, seg.segment, stop]);
 
-  const done = photos.length === TOTAL_SHOTS;
-  const modelLoading = seg.loading;
+  const retake = useCallback(() => {
+    cutoutsRef.current = [];
+    setShotCount(0);
+    setStripUrl(null);
+    setPhase("ready");
+    start("user");
+  }, [start]);
+
+  const modelReady = seg.ready && ready;
+  const modelLoading = seg.loading || !ready;
 
   return (
-    <main className="flex min-h-screen flex-col items-center bg-[#F5F2EA] px-4 py-8">
-      {/* status bar */}
-      <div className="mb-6 flex items-center gap-3">
-        <h1 className="text-lg font-light tracking-wide text-[#2C2C2A]">
-          {done ? "your strip" : `${photos.length} / ${TOTAL_SHOTS}`}
-        </h1>
-        {seg.runtime && (
-          <span className="rounded-full bg-[#EDE9DF] px-2.5 py-0.5 text-xs text-[#8A8780]">
-            {seg.runtime}
-          </span>
-        )}
-      </div>
+    <main className="flex min-h-screen flex-col items-center bg-[#F5F2EA]">
+      {/* top bar */}
+      <header className="flex w-full max-w-lg items-center justify-between px-6 pt-8 pb-4">
+        <motion.span
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="font-serif text-lg italic text-[#2C2C2A]/40"
+        >
+          duet
+        </motion.span>
 
-      <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
-        {/* camera */}
-        <div className="relative">
-          <Viewfinder ref={videoRef} />
-          <CountdownOverlay count={count} />
-
-          {/* model loading overlay */}
-          {modelLoading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#2C2C2A]/60">
-              <Loader2 size={24} className="animate-spin text-white" />
-              <p className="text-sm text-white/80">loading segmentation model...</p>
-            </div>
-          )}
-
-          {(error || seg.error) && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-[#2C2C2A]/80 px-4">
-              <p className="text-center text-sm text-white/80">
-                {error || seg.error}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* strips: raw + cutout */}
-        <div className="flex gap-4">
-          {photos.length > 0 && <PhotoStrip photos={photos} label="original" />}
-          {cutouts.length > 0 && <PhotoStrip photos={cutouts} label="portrait" />}
-        </div>
-      </div>
-
-      {/* controls */}
-      <div className="mt-8 flex items-center gap-4">
-        {!done && (
-          <>
-            <button
-              onClick={flip}
-              disabled={shooting}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-[#DDD9D0] text-[#2C2C2A] transition-colors hover:bg-[#EDE9DF] disabled:opacity-40"
-              aria-label="flip camera"
-            >
-              <RefreshCw size={18} />
-            </button>
-
-            <button
-              onClick={takePhoto}
-              disabled={shooting || !ready || !seg.ready}
-              className="flex h-14 w-14 items-center justify-center rounded-full bg-[#2C2C2A] text-[#F5F2EA] transition-opacity hover:opacity-80 disabled:opacity-40"
-              aria-label="take photos"
-            >
-              <Camera size={22} />
-            </button>
-          </>
-        )}
-
-        {done && (
-          <button
-            onClick={reset}
-            className="flex items-center gap-2 rounded-full border border-[#DDD9D0] px-5 py-2.5 text-sm text-[#2C2C2A] transition-colors hover:bg-[#EDE9DF]"
+        {seg.runtime && phase !== "done" && (
+          <motion.span
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="rounded-full bg-[#EDE9DF] px-2.5 py-0.5 text-[10px] tracking-wider text-[#8A8780] uppercase"
           >
-            <RotateCcw size={16} />
-            retake
-          </button>
+            {seg.runtime}
+          </motion.span>
         )}
+      </header>
+
+      {/* main content */}
+      <div className="flex flex-1 flex-col items-center justify-center px-4 pb-12">
+        <AnimatePresence mode="wait">
+          {phase !== "done" ? (
+            <motion.div
+              key="camera"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.4 }}
+              className="flex flex-col items-center gap-6"
+            >
+              {/* viewfinder */}
+              <div className="relative">
+                <Viewfinder ref={videoRef} />
+                <CountdownOverlay count={count} />
+                <ShutterFlash flash={flash} />
+
+                {/* loading overlay */}
+                {modelLoading && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#2C2C2A]/50 backdrop-blur-sm">
+                    <Loader2
+                      size={20}
+                      className="animate-spin text-white/80"
+                    />
+                    <p className="text-xs tracking-wide text-white/60">
+                      {seg.loading
+                        ? "loading segmentation model..."
+                        : "starting camera..."}
+                    </p>
+                  </div>
+                )}
+
+                {/* processing overlay */}
+                {phase === "processing" && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#F5F2EA]/80 backdrop-blur-sm">
+                    <Loader2
+                      size={20}
+                      className="animate-spin text-[#2C2C2A]/60"
+                    />
+                    <p className="text-xs tracking-wide text-[#2C2C2A]/50">
+                      compositing your strip...
+                    </p>
+                  </div>
+                )}
+
+                {/* error */}
+                {(error || seg.error) && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-[#2C2C2A]/80 px-6">
+                    <p className="text-center text-sm leading-relaxed text-white/70">
+                      {error || seg.error}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* shot counter */}
+              <ShotCounter total={TOTAL_SHOTS} current={shotCount} />
+
+              {/* controls */}
+              <div className="flex items-center gap-5">
+                <button
+                  onClick={flip}
+                  disabled={phase === "shooting" || phase === "processing"}
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-[#DDD9D0] text-[#2C2C2A]/60 transition-all duration-300 hover:border-[#D4A574] hover:text-[#2C2C2A] disabled:opacity-30"
+                  aria-label="flip camera"
+                >
+                  <RefreshCw size={16} />
+                </button>
+
+                <button
+                  onClick={shoot}
+                  disabled={!modelReady || phase === "shooting" || phase === "processing"}
+                  className="group relative flex h-16 w-16 items-center justify-center rounded-full bg-[#2C2C2A] transition-all duration-300 hover:scale-105 disabled:opacity-30 disabled:hover:scale-100"
+                  aria-label="take 4 photos"
+                >
+                  {/* outer ring */}
+                  <span className="absolute inset-0 rounded-full border-2 border-[#2C2C2A]/20 transition-all duration-300 group-hover:border-[#D4A574]/40" />
+                  <Camera size={20} className="text-[#F5F2EA]" />
+                </button>
+
+                {/* spacer to balance layout */}
+                <div className="h-10 w-10" />
+              </div>
+
+              {/* hint text */}
+              {phase === "ready" && modelReady && (
+                <motion.p
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5, duration: 0.5 }}
+                  className="text-xs tracking-wide text-[#8A8780]"
+                >
+                  tap to take {TOTAL_SHOTS} photos
+                </motion.p>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="result"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.5 }}
+            >
+              {stripUrl && (
+                <StripResult stripUrl={stripUrl} onRetake={retake} />
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </main>
   );

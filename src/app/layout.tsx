@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
+import { Fraunces } from "next/font/google";
 import "./globals.css";
 
 const geist = Geist({
@@ -7,13 +8,25 @@ const geist = Geist({
   subsets: ["latin"],
 });
 
-// TODO: add Fraunces serif font for headings once Google Fonts supports it in next/font
-// for now using Geist for everything
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  weight: ["300", "400", "500"],
+});
 
 export const metadata: Metadata = {
   title: "duet — take photos together, apart",
   description:
     "collaborative photo booth for friends who are far apart. on-device portrait segmentation, shared backgrounds, unified color grading.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#F5F2EA",
 };
 
 export default function RootLayout({
@@ -22,7 +35,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geist.variable} h-full antialiased`}>
+    <html
+      lang="en"
+      className={`${geist.variable} ${fraunces.variable} h-full antialiased`}
+    >
       <body className="min-h-full flex flex-col font-sans">{children}</body>
     </html>
   );
