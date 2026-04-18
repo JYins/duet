@@ -17,61 +17,88 @@ export default function ShareCard({ url, code }: ShareCardProps) {
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), 2500);
     } catch {
-      // fallback: select text
+      // fallback
     }
   }, [url]);
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 15 }}
+      initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col items-center gap-5 rounded-xl border border-[#DDD9D0] bg-[#FDFCF9] p-6 shadow-sm sm:p-8"
+      transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+      className="relative overflow-hidden rounded-2xl border border-[#2C2C2A]/[0.05] bg-[#FDFCF9] shadow-sm"
     >
-      <p className="text-xs tracking-wide text-[#8A8780] sm:text-sm">
-        send this to your friend
-      </p>
+      {/* subtle paper texture */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.02]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+        }}
+      />
 
-      {/* QR code */}
-      <div className="rounded-lg border border-[#EDE9DF] bg-white p-3">
-        <QRCodeSVG
-          value={url}
-          size={140}
-          bgColor="#FFFFFF"
-          fgColor="#2C2C2A"
-          level="M"
-        />
-      </div>
+      <div className="relative flex flex-col items-center gap-5 px-8 py-7 sm:px-10 sm:py-9">
+        {/* header */}
+        <div className="flex flex-col items-center gap-1">
+          <span className="font-serif text-sm italic text-[#2C2C2A]/40">
+            duet
+          </span>
+          <span className="text-[10px] tracking-[0.12em] text-[#B5B2AB] uppercase">
+            scan to join
+          </span>
+        </div>
 
-      {/* room code */}
-      <div className="flex flex-col items-center gap-1.5">
-        <span className="font-mono text-2xl font-medium tracking-[0.15em] text-[#2C2C2A] sm:text-3xl">
-          {code}
-        </span>
-        <span className="text-[10px] tracking-wide text-[#8A8780] uppercase">
-          room code
-        </span>
-      </div>
+        {/* QR */}
+        <div className="rounded-xl border border-[#2C2C2A]/[0.04] bg-white p-3.5">
+          <QRCodeSVG
+            value={url}
+            size={130}
+            bgColor="#FFFFFF"
+            fgColor="#2C2C2A"
+            level="M"
+          />
+        </div>
 
-      {/* copy link */}
-      <button
-        onClick={copy}
-        className="flex items-center gap-1.5 rounded-full border border-[#DDD9D0] px-4 py-2 text-xs text-[#2C2C2A] transition-all duration-300 hover:border-[#D4A574] hover:bg-[#F5F2EA] sm:text-sm"
-      >
-        {copied ? (
-          <>
-            <Check size={13} className="text-[#D4A574]" />
+        {/* divider */}
+        <div className="flex items-center gap-3 w-full">
+          <div className="h-px flex-1 bg-[#2C2C2A]/[0.04]" />
+          <span className="text-[9px] tracking-[0.15em] text-[#D4A574]/50 uppercase">or</span>
+          <div className="h-px flex-1 bg-[#2C2C2A]/[0.04]" />
+        </div>
+
+        {/* room code — large monospace */}
+        <div className="flex flex-col items-center gap-1">
+          <span className="font-mono text-[28px] font-medium tracking-[0.18em] text-[#2C2C2A] sm:text-[32px]">
+            {code}
+          </span>
+          <span className="text-[9px] tracking-[0.1em] text-[#B5B2AB] uppercase">
+            room code
+          </span>
+        </div>
+
+        {/* copy button */}
+        <button
+          onClick={copy}
+          className={`flex items-center gap-1.5 rounded-full px-5 py-2 text-[11px] tracking-wide transition-all duration-500 ${
             copied
-          </>
-        ) : (
-          <>
-            <Copy size={13} />
-            copy link
-          </>
-        )}
-      </button>
+              ? "border border-[#D4A574]/30 text-[#D4A574]"
+              : "border border-[#2C2C2A]/[0.08] text-[#8A8780] hover:border-[#D4A574]/20 hover:text-[#2C2C2A]"
+          }`}
+        >
+          {copied ? (
+            <>
+              <Check size={12} strokeWidth={1.5} />
+              link copied
+            </>
+          ) : (
+            <>
+              <Copy size={12} strokeWidth={1.5} />
+              copy link
+            </>
+          )}
+        </button>
+      </div>
     </motion.div>
   );
 }
