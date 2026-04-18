@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# duet
 
-## Getting Started
+collaborative photo booth for long-distance friends. take photos together, even when you're apart.
 
-First, run the development server:
+users on separate devices each take photos through their browser. on-device portrait segmentation extracts each person, places them onto a shared background, applies unified color grading, and generates a korean-style 4-frame photo strip that looks like everyone was in the same room.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## how it works
+
+1. **on-device portrait segmentation** — MediaPipe Tasks (desktop/Android) with TensorFlow.js WebGL fallback (iOS Safari). no photos leave the device.
+2. **shared background compositing** — Canvas 2D composites segmented portraits onto preset scene backgrounds.
+3. **unified LUT color grading** — WebGL2 fragment shader applies `.cube` LUT to the entire composite, forcing all subjects into the same color space for visual coherence.
+4. **cross-device collaboration** — one user creates a room, the other joins via link/QR. the first user's portrait appears as a ghost overlay so the second user can align their pose before shooting.
+
+## tech stack
+
+| layer | choice | why |
+|---|---|---|
+| framework | Next.js 15, App Router | fast iteration, Vercel deploy, SSR when needed |
+| language | TypeScript (strict) | type safety across browser APIs and WebGL |
+| styling | Tailwind CSS 4 + shadcn/ui | token-friendly components, no dependency lock-in |
+| animation | Framer Motion | smooth transitions for camera UI and strip reveal |
+| segmentation | MediaPipe + TF.js dual-engine | runtime detection routes to fastest backend per device |
+| color grading | WebGL2 + .cube LUT | custom fragment shader, real-time preview |
+| compositing | Canvas 2D | drawImage + globalCompositeOperation, simple and fast |
+| realtime | Supabase (Realtime + Storage) | room state sync, photo transfer, RLS for isolation |
+| hosting | Vercel | zero-config HTTPS, edge functions |
+
+## architecture decisions
+
+**web over native** — browser deployment means instant iteration (no TestFlight, no provisioning). MediaPipe and WebGL ecosystems are mature on web. if App Store distribution is needed later, Capacitor wraps 95% of the codebase.
+
+**on-device inference** — zero server GPU cost, photos never leave the user's device (privacy as a feature), and client-side processing enables real-time preview interactions like adjustable depth-of-field.
+
+**dual segmentation runtime** — MediaPipe is fastest on desktop Chrome and Android. TF.js + WebGL backend is faster and more stable on iOS Safari. device detection at startup routes to the right engine automatically.
+
+**shared backgrounds instead of scene fusion** — merging two real environments is an unsolved image harmonization problem. using preset backgrounds reduces it to an engineering problem: paste two cutouts onto one scene.
+
+**post-composite LUT** — applying color grading to the final composite (not individual portraits) forces both subjects into the same color space. this is the single most important step for the "they were actually together" illusion.
+
+## project structure
+
+```
+src/
+├── app/              # Next.js App Router
+│   ├── page.tsx      # landing
+│   └── booth/        # camera + capture flow
+├── components/       # UI components
+├── hooks/            # useCamera, useCountdown
+├── lib/              # camera, segmentation, compositing, LUT
+└── types/
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## development
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+open `localhost:3000`. camera access requires HTTPS in production (Vercel handles this) but works on localhost for development.
 
-## Learn More
+## status
 
-To learn more about Next.js, take a look at the following resources:
+week 1 — single-device capture flow. camera preview, 4-shot countdown, photo strip generation.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## license
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
