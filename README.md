@@ -83,8 +83,18 @@ week 2 — cross-device collaboration (mode a):
 - supabase rooms with short codes + QR sharing
 - host creates room, takes photos, cutouts uploaded to storage
 - guest joins via link, sees host's cutout as ghost overlay for pose alignment
-- realtime room state sync via supabase postgres changes
+- duet composite: both people in each frame (host left, guest right)
+- host auto-receives the combined strip when guest finishes via realtime
 - landing page with start-a-duet / solo booth / join-by-code flows
+
+week 3 — polish and wow:
+
+- depth-of-field slider (0-100): gaussian blur on background, person stays sharp
+- 6 preset backgrounds: studio, cafe, sakura, neon, white, golden (unsplash CC0)
+- all settings (background, LUT, depth) adjustable after capture without reshooting
+- font loading optimized with `display: swap`
+- open graph + twitter card metadata
+- custom 404 page
 
 ## license
 
