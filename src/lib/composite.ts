@@ -1,24 +1,26 @@
 // composites segmented portraits onto a shared background
-// and generates a korean-style 1x4 photo strip
+// and generates a korean-style 1x4 photo strip with LUT + grain + vignette
+
+import { createLutRenderer, getLutByPreset, type LutPreset } from "./lut";
+import { applyGrain, applyVignette } from "./effects";
 
 const FRAME_W = 540;
 const FRAME_H = 720;
-const STRIP_COLS = 1;
 const STRIP_ROWS = 4;
 const PAD = 24;
 const INNER_GAP = 12;
 const CORNER_R = 6;
 
-// total strip dimensions
 const STRIP_W = PAD * 2 + FRAME_W;
-const STRIP_H = PAD * 2 + FRAME_H * STRIP_ROWS + INNER_GAP * (STRIP_ROWS - 1);
+const STRIP_H =
+  PAD * 2 + FRAME_H * STRIP_ROWS + INNER_GAP * (STRIP_ROWS - 1);
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`failed to load image`));
+    img.onerror = () => reject(new Error("failed to load image"));
     img.src = src;
   });
 }
@@ -46,30 +48,43 @@ function roundRect(
 
 export interface CompositeOptions {
   cutouts: string[];
-  background?: string; // url or data url — if omitted, uses cream solid
+  background?: string;
+  lut?: LutPreset;
+  grain?: boolean;
+  vignette?: boolean;
   date?: string;
   title?: string;
 }
 
 export async function generateStrip(opts: CompositeOptions): Promise<string> {
-  const { cutouts, background, date, title } = opts;
+  const {
+    cutouts,
+    background,
+    lut = "warm-film",
+    grain = true,
+    vignette = true,
+    date,
+    title,
+  } = opts;
+
+  const totalH = STRIP_H + 60; // extra for date stamp
 
   const canvas = document.createElement("canvas");
   canvas.width = STRIP_W;
-  canvas.height = STRIP_H + 60; // extra space for date stamp at bottom
+  canvas.height = totalH;
   const ctx = canvas.getContext("2d")!;
 
-  // fill with strip paper color
+  // paper white fill
   ctx.fillStyle = "#FDFCF9";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // load background if provided
+  // load background
   let bgImg: HTMLImageElement | null = null;
   if (background) {
     try {
       bgImg = await loadImage(background);
     } catch {
-      // fallback to solid color
+      // solid fallback
     }
   }
 
@@ -82,29 +97,39 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     roundRect(ctx, x, y, FRAME_W, FRAME_H, CORNER_R);
     ctx.clip();
 
-    // background for this frame
+    // background
     if (bgImg) {
-      // cover-fit the background
       const scale = Math.max(FRAME_W / bgImg.width, FRAME_H / bgImg.height);
       const sw = bgImg.width * scale;
       const sh = bgImg.height * scale;
-      ctx.drawImage(bgImg, x + (FRAME_W - sw) / 2, y + (FRAME_H - sh) / 2, sw, sh);
+      ctx.drawImage(
+        bgImg,
+        x + (FRAME_W - sw) / 2,
+        y + (FRAME_H - sh) / 2,
+        sw,
+        sh,
+      );
     } else {
       ctx.fillStyle = "#EDE9DF";
       ctx.fillRect(x, y, FRAME_W, FRAME_H);
     }
 
-    // draw cutout portrait
+    // cutout portrait
     const cutout = await loadImage(cutouts[i]);
-    // center-fit the cutout
     const cutScale = Math.min(FRAME_W / cutout.width, FRAME_H / cutout.height);
     const cw = cutout.width * cutScale;
     const ch = cutout.height * cutScale;
-    ctx.drawImage(cutout, x + (FRAME_W - cw) / 2, y + (FRAME_H - ch) / 2, cw, ch);
+    ctx.drawImage(
+      cutout,
+      x + (FRAME_W - cw) / 2,
+      y + (FRAME_H - ch) / 2,
+      cw,
+      ch,
+    );
 
     ctx.restore();
 
-    // thin border around frame
+    // thin border
     ctx.save();
     roundRect(ctx, x, y, FRAME_W, FRAME_H, CORNER_R);
     ctx.strokeStyle = "rgba(44, 44, 42, 0.08)";
@@ -113,19 +138,46 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     ctx.restore();
   }
 
-  // date stamp at bottom
-  const stampY = STRIP_H + 20;
+  // ---- apply LUT to the photo area (not the white border) ----
+  if (lut !== "none") {
+    try {
+      const lutData = getLutByPreset(lut);
+      const renderer = createLutRenderer(STRIP_W, STRIP_H);
+      const graded = renderer.apply(canvas, lutData, 0.85);
+      // paste graded pixels back onto the photo area only
+      ctx.putImageData(graded, 0, 0);
+      renderer.dispose();
+    } catch (e) {
+      console.warn("[duet] LUT failed, skipping", e);
+    }
+  }
+
+  // ---- grain + vignette on the photo area ----
+  if (grain) {
+    applyGrain(ctx, canvas.width, STRIP_H, 0.04);
+  }
+  if (vignette) {
+    applyVignette(ctx, canvas.width, STRIP_H, 0.2);
+  }
+
+  // re-draw the paper border area clean (grain/vignette may have bled)
+  ctx.fillStyle = "#FDFCF9";
+  ctx.fillRect(0, STRIP_H, canvas.width, totalH - STRIP_H);
+
+  // date stamp
+  const stampY = STRIP_H + 30;
   ctx.fillStyle = "#8A8780";
   ctx.font = "italic 13px Georgia, 'Times New Roman', serif";
   ctx.textAlign = "center";
-
-  const stampText = [title || "duet", date || formatDate()].filter(Boolean).join("  ·  ");
+  const stampText = [title || "duet", date || formatDate()]
+    .filter(Boolean)
+    .join("  ·  ");
   ctx.fillText(stampText, canvas.width / 2, stampY);
 
-  // subtle outer border
+  // outer border
   ctx.strokeStyle = "rgba(44, 44, 42, 0.06)";
   ctx.lineWidth = 0.5;
-  roundRect(ctx, 1, 1, canvas.width - 2, canvas.height - 2, 8);
+  roundRect(ctx, 1, 1, canvas.width - 2, totalH - 2, 8);
   ctx.stroke();
 
   return canvas.toDataURL("image/png");

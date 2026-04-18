@@ -6,8 +6,8 @@ import { Camera } from "lucide-react";
 
 export default function Home() {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center bg-[#F5F2EA] px-6">
-      {/* film grain texture overlay */}
+    <main className="flex flex-1 flex-col items-center justify-center bg-[#F5F2EA] px-5 sm:px-6">
+      {/* film grain texture */}
       <div
         className="pointer-events-none fixed inset-0 opacity-[0.03]"
         style={{
@@ -15,18 +15,18 @@ export default function Home() {
         }}
       />
 
-      <div className="relative flex flex-col items-center gap-10 text-center">
+      <div className="relative flex flex-col items-center gap-8 text-center sm:gap-10">
         {/* title */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-          className="flex flex-col items-center gap-4"
+          className="flex flex-col items-center gap-3 sm:gap-4"
         >
-          <h1 className="font-serif text-6xl font-light italic tracking-tight text-[#2C2C2A]">
+          <h1 className="font-serif text-5xl font-light italic tracking-tight text-[#2C2C2A] sm:text-6xl">
             duet
           </h1>
-          <div className="h-px w-12 bg-[#D4A574]/40" />
+          <div className="h-px w-10 bg-[#D4A574]/40 sm:w-12" />
         </motion.div>
 
         {/* tagline */}
@@ -34,13 +34,13 @@ export default function Home() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.3 }}
-          className="max-w-xs text-sm leading-relaxed tracking-wide text-[#8A8780]"
+          className="max-w-[280px] text-xs leading-relaxed tracking-wide text-[#8A8780] sm:max-w-xs sm:text-sm"
         >
           take photos together, even when you are apart.
-          <br />
-          on-device portrait segmentation, shared backgrounds,
-          <br />
-          unified color grading. one strip, two places.
+          <br className="hidden sm:block" />
+          {" "}on-device portrait segmentation, shared backgrounds,
+          <br className="hidden sm:block" />
+          {" "}unified color grading. one strip, two places.
         </motion.p>
 
         {/* cta */}
@@ -51,22 +51,22 @@ export default function Home() {
         >
           <Link
             href="/booth"
-            className="group flex items-center gap-2.5 rounded-full border border-[#2C2C2A] px-7 py-3 text-sm tracking-wide text-[#2C2C2A] transition-all duration-500 hover:bg-[#2C2C2A] hover:text-[#F5F2EA]"
+            className="group flex items-center gap-2 rounded-full border border-[#2C2C2A] px-6 py-2.5 text-xs tracking-wide text-[#2C2C2A] transition-all duration-500 hover:bg-[#2C2C2A] hover:text-[#F5F2EA] active:scale-95 sm:gap-2.5 sm:px-7 sm:py-3 sm:text-sm"
           >
             <Camera
-              size={15}
-              className="transition-transform duration-500 group-hover:scale-110"
+              size={14}
+              className="transition-transform duration-500 group-hover:scale-110 sm:h-[15px] sm:w-[15px]"
             />
             start shooting
           </Link>
         </motion.div>
 
-        {/* subtle bottom mark */}
+        {/* bottom mark */}
         <motion.span
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1, duration: 1 }}
-          className="absolute -bottom-20 text-[10px] tracking-[0.2em] text-[#D4A574]/40 uppercase"
+          className="absolute -bottom-16 text-[8px] tracking-[0.15em] text-[#D4A574]/40 uppercase sm:-bottom-20 sm:text-[10px] sm:tracking-[0.2em]"
         >
           collaborative photo booth
         </motion.span>
