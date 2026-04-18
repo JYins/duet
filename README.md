@@ -61,7 +61,15 @@ open `localhost:3000`. camera access requires HTTPS in production (Vercel handle
 
 ## status
 
-week 1 — single-device capture flow. camera preview, 4-shot countdown, photo strip generation.
+week 1 complete — single-device photo booth with full pipeline:
+
+- camera preview with 3:4 crop, flip, 3-second countdown, shutter flash
+- dual-engine portrait segmentation (MediaPipe + TF.js iOS fallback)
+- canvas 2d compositing into 1×4 korean-style photo strip
+- webgl2 lut color grading (4 built-in presets: natural, portra, cool, mono)
+- film grain overlay + radial vignette post-processing
+- live lut re-grading after capture
+- responsive layout with safe-area insets and fluid sizing
 
 ## license
 
