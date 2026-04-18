@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 import { Download, RotateCcw, Share2 } from "lucide-react";
 import { downloadImage } from "@/lib/composite";
+import { useLocale } from "@/hooks/use-locale";
 import { useCallback, useState } from "react";
 
 interface StripResultProps {
@@ -12,6 +13,7 @@ interface StripResultProps {
 }
 
 export default function StripResult({ stripUrl, onRetake }: StripResultProps) {
+  const { t } = useLocale();
   const [shared, setShared] = useState(false);
 
   const share = useCallback(async () => {
@@ -19,7 +21,6 @@ export default function StripResult({ stripUrl, onRetake }: StripResultProps) {
       downloadImage(stripUrl);
       return;
     }
-
     try {
       const res = await fetch(stripUrl);
       const blob = await res.blob();
@@ -28,7 +29,7 @@ export default function StripResult({ stripUrl, onRetake }: StripResultProps) {
       setShared(true);
       setTimeout(() => setShared(false), 2000);
     } catch {
-      // user cancelled share sheet
+      // user cancelled
     }
   }, [stripUrl]);
 
@@ -39,34 +40,25 @@ export default function StripResult({ stripUrl, onRetake }: StripResultProps) {
       transition={{ duration: 0.8 }}
       className="flex flex-col items-center gap-7 sm:gap-8"
     >
-      {/* the strip — rising from paper */}
       <motion.div
         initial={{ y: 50, opacity: 0, rotateX: 8 }}
         animate={{ y: 0, opacity: 1, rotateX: 0 }}
-        transition={{
-          duration: 1.2,
-          ease: [0.22, 1, 0.36, 1],
-          delay: 0.15,
-        }}
+        transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1], delay: 0.15 }}
         className="relative"
         style={{ perspective: "800px" }}
       >
-        {/* multi-layer shadow for depth */}
         <div className="absolute -inset-3 rounded-2xl bg-[#2C2C2A]/[0.02] blur-xl" />
         <div className="absolute -inset-1.5 rounded-xl bg-[#2C2C2A]/[0.03] blur-md" />
-
         <div className="relative overflow-hidden rounded-lg border border-[#2C2C2A]/[0.05] shadow-sm">
           <Image
             src={stripUrl}
-            alt="your duet strip"
+            alt="Duet strip"
             width={300}
             height={0}
             className="h-auto w-[220px] sm:w-[260px] md:w-[280px]"
             unoptimized
             priority
           />
-
-          {/* subtle shine sweep on load */}
           <motion.div
             initial={{ x: "-100%", opacity: 0 }}
             animate={{ x: "200%", opacity: 1 }}
@@ -76,7 +68,6 @@ export default function StripResult({ stripUrl, onRetake }: StripResultProps) {
         </div>
       </motion.div>
 
-      {/* actions — staggered entrance */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -88,24 +79,22 @@ export default function StripResult({ stripUrl, onRetake }: StripResultProps) {
           className="flex items-center gap-1.5 rounded-full border border-[#2C2C2A]/[0.08] px-4 py-2 text-[11px] tracking-wide text-[#8A8780] transition-all duration-400 hover:border-[#D4A574]/30 hover:text-[#2C2C2A] sm:px-5 sm:py-2.5 sm:text-xs"
         >
           <RotateCcw size={12} strokeWidth={1.5} />
-          retake
+          {t("result.retake")}
         </button>
-
         <button
           onClick={() => downloadImage(stripUrl)}
           className="flex items-center gap-1.5 rounded-full bg-[#2C2C2A] px-4 py-2 text-[11px] tracking-wide text-[#F5F2EA] transition-all duration-400 hover:bg-[#3d3d3a] sm:px-5 sm:py-2.5 sm:text-xs"
         >
           <Download size={12} strokeWidth={1.5} />
-          save
+          {t("result.save")}
         </button>
-
         {typeof navigator !== "undefined" && "share" in navigator && (
           <button
             onClick={share}
             className="flex items-center gap-1.5 rounded-full border border-[#D4A574]/20 px-4 py-2 text-[11px] tracking-wide text-[#D4A574] transition-all duration-400 hover:border-[#D4A574]/40 hover:bg-[#D4A574]/5 sm:px-5 sm:py-2.5 sm:text-xs"
           >
             <Share2 size={12} strokeWidth={1.5} />
-            {shared ? "shared" : "share"}
+            {shared ? t("result.shared") : t("result.share")}
           </button>
         )}
       </motion.div>

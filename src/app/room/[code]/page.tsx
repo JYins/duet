@@ -25,6 +25,7 @@ import ShotCounter from "@/components/shot-counter";
 import GhostOverlay from "@/components/ghost-overlay";
 import StripResult from "@/components/strip-result";
 import LutPicker from "@/components/lut-picker";
+import { useLocale } from "@/hooks/use-locale";
 
 const TOTAL_SHOTS = 4;
 
@@ -45,6 +46,7 @@ export default function RoomPage() {
   const [stripUrl, setStripUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const { t } = useLocale();
   const cutoutsRef = useRef<string[]>([]);
 
   // load room on mount
@@ -52,7 +54,7 @@ export default function RoomPage() {
     async function load() {
       const found = await findRoom(params.code);
       if (!found) {
-        setErrorMsg("room not found or expired");
+        setErrorMsg(t("room.notFound"));
         setPhase("error");
         return;
       }
@@ -173,7 +175,7 @@ export default function RoomPage() {
           animate={{ opacity: 1 }}
           className="font-serif text-base italic text-[#2C2C2A]/40 sm:text-lg"
         >
-          duet
+          Duet
         </motion.span>
         {room && (
           <motion.span
@@ -200,7 +202,7 @@ export default function RoomPage() {
             >
               <Loader2 size={20} className="animate-spin text-[#8A8780]" />
               <p className="text-xs tracking-wide text-[#8A8780]">
-                joining room...
+                {t("room.joining")}
               </p>
             </motion.div>
           )}
@@ -218,7 +220,7 @@ export default function RoomPage() {
                 href="/"
                 className="rounded-full border border-[#DDD9D0] px-5 py-2 text-xs text-[#2C2C2A] hover:bg-[#EDE9DF]"
               >
-                back home
+                {t("room.backHome")}
               </a>
             </motion.div>
           )}
@@ -250,7 +252,7 @@ export default function RoomPage() {
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#2C2C2A]/50 backdrop-blur-sm">
                     <Loader2 size={20} className="animate-spin text-white/80" />
                     <p className="text-[11px] tracking-wide text-white/60">
-                      {seg.loading ? "loading model..." : "starting camera..."}
+                      {seg.loading ? t("booth.loadingModel") : t("booth.startingCamera")}
                     </p>
                   </div>
                 )}
@@ -260,8 +262,8 @@ export default function RoomPage() {
                     <Loader2 size={20} className="animate-spin text-[#2C2C2A]/60" />
                     <p className="text-[11px] tracking-wide text-[#2C2C2A]/50">
                       {phase === "uploading"
-                        ? "uploading photos..."
-                        : "compositing strip..."}
+                        ? t("room.uploading")
+                        : t("room.compositing")}
                     </p>
                   </div>
                 )}
@@ -285,7 +287,7 @@ export default function RoomPage() {
                   transition={{ delay: 0.5 }}
                   className="max-w-[240px] text-center text-[10px] leading-relaxed tracking-wide text-[#8A8780] sm:text-xs"
                 >
-                  align yourself with the ghost overlay, then tap to shoot
+                  {t("room.alignGhost")}
                 </motion.p>
               )}
 

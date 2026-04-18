@@ -25,6 +25,7 @@ import ShotCounter from "@/components/shot-counter";
 import LutPicker from "@/components/lut-picker";
 import ShareCard from "@/components/share-card";
 import StripResult from "@/components/strip-result";
+import { useLocale } from "@/hooks/use-locale";
 
 const TOTAL_SHOTS = 4;
 
@@ -45,6 +46,7 @@ export default function CreatePage() {
   const [stripUrl, setStripUrl] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  const { t } = useLocale();
   const cutoutsRef = useRef<string[]>([]);
 
   useEffect(() => {
@@ -178,7 +180,7 @@ export default function CreatePage() {
           animate={{ opacity: 1 }}
           className="font-serif text-base italic text-[#2C2C2A]/40 sm:text-lg"
         >
-          duet
+          Duet
         </motion.span>
         <motion.span
           initial={{ opacity: 0 }}
@@ -186,7 +188,7 @@ export default function CreatePage() {
           transition={{ delay: 0.2 }}
           className="text-[10px] tracking-wider text-[#D4A574] uppercase sm:text-xs"
         >
-          {phase === "done" ? "your duet" : "create room"}
+          {phase === "done" ? t("create.yourDuet") : t("create.title")}
         </motion.span>
       </header>
 
@@ -211,7 +213,7 @@ export default function CreatePage() {
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#2C2C2A]/50 backdrop-blur-sm">
                     <Loader2 size={20} className="animate-spin text-white/80" />
                     <p className="text-[11px] tracking-wide text-white/60 sm:text-xs">
-                      {seg.loading ? "loading model..." : "starting camera..."}
+                      {seg.loading ? t("booth.loadingModel") : t("booth.startingCamera")}
                     </p>
                   </div>
                 )}
@@ -220,7 +222,7 @@ export default function CreatePage() {
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#F5F2EA]/80 backdrop-blur-sm">
                     <Loader2 size={20} className="animate-spin text-[#2C2C2A]/60" />
                     <p className="text-[11px] tracking-wide text-[#2C2C2A]/50 sm:text-xs">
-                      creating room...
+                      {t("create.creatingRoom")}
                     </p>
                   </div>
                 )}
@@ -276,7 +278,7 @@ export default function CreatePage() {
                   transition={{ delay: 0.6 }}
                   className="text-[10px] tracking-wide text-[#8A8780] sm:text-xs"
                 >
-                  take your photos, then share the room
+                  {t("create.takeAndShare")}
                 </motion.p>
               )}
             </motion.div>
@@ -304,7 +306,7 @@ export default function CreatePage() {
                 >
                   <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#D4A574]" />
                   <p className="text-[10px] tracking-wide text-[#8A8780] sm:text-xs">
-                    waiting for your friend...
+                    {t("create.waiting")}
                   </p>
                 </motion.div>
               )}
@@ -313,7 +315,7 @@ export default function CreatePage() {
                 <div className="flex items-center gap-2">
                   <Loader2 size={14} className="animate-spin text-[#8A8780]" />
                   <p className="text-[10px] tracking-wide text-[#8A8780] sm:text-xs">
-                    your friend joined! compositing...
+                    {t("create.friendJoined")}
                   </p>
                 </div>
               )}

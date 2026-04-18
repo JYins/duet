@@ -20,6 +20,7 @@ import StripResult from "@/components/strip-result";
 import LutPicker from "@/components/lut-picker";
 import BgPicker from "@/components/bg-picker";
 import DepthSlider from "@/components/depth-slider";
+import { useLocale } from "@/hooks/use-locale";
 
 const TOTAL_SHOTS = 4;
 
@@ -45,6 +46,7 @@ export default function BoothPage() {
   const [depth, setDepth] = useState(0);
   const [stripUrl, setStripUrl] = useState<string | null>(null);
 
+  const { t } = useLocale();
   const framesRef = useRef<CapturedFrame[]>([]);
 
   useEffect(() => {
@@ -169,7 +171,7 @@ export default function BoothPage() {
           animate={{ opacity: 1 }}
           className="font-serif text-base italic text-[#2C2C2A]/40 sm:text-lg"
         >
-          duet
+          Duet
         </motion.span>
 
         {seg.runtime && phase !== "done" && (
@@ -206,7 +208,7 @@ export default function BoothPage() {
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#2C2C2A]/50 backdrop-blur-sm">
                     <Loader2 size={20} className="animate-spin text-white/80" />
                     <p className="text-[11px] tracking-wide text-white/60 sm:text-xs">
-                      {seg.loading ? "loading segmentation model..." : "starting camera..."}
+                      {seg.loading ? t("booth.loadingModel") : t("booth.startingCamera")}
                     </p>
                   </div>
                 )}
@@ -215,7 +217,7 @@ export default function BoothPage() {
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#F5F2EA]/80 backdrop-blur-sm">
                     <Loader2 size={20} className="animate-spin text-[#2C2C2A]/60" />
                     <p className="text-[11px] tracking-wide text-[#2C2C2A]/50 sm:text-xs">
-                      compositing your strip...
+                      {t("booth.compositing")}
                     </p>
                   </div>
                 )}
@@ -276,7 +278,7 @@ export default function BoothPage() {
                   transition={{ delay: 0.5, duration: 0.5 }}
                   className="text-[10px] tracking-wide text-[#8A8780] sm:text-xs"
                 >
-                  tap to take {TOTAL_SHOTS} photos
+                  {t("booth.tapToShoot")}
                 </motion.p>
               )}
             </motion.div>

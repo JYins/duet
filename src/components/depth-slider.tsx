@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { useLocale } from "@/hooks/use-locale";
 
 interface DepthSliderProps {
   value: number;
@@ -8,6 +9,8 @@ interface DepthSliderProps {
 }
 
 export default function DepthSlider({ value, onChange }: DepthSliderProps) {
+  const { t } = useLocale();
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 5 }}
@@ -15,7 +18,7 @@ export default function DepthSlider({ value, onChange }: DepthSliderProps) {
       className="flex items-center gap-3"
     >
       <span className="text-[10px] tracking-wide text-[#8A8780] uppercase sm:text-xs">
-        depth
+        {t("booth.depth")}
       </span>
       <input
         type="range"
