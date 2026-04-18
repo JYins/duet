@@ -59,9 +59,16 @@ npm run dev
 
 open `localhost:3000`. camera access requires HTTPS in production (Vercel handles this) but works on localhost for development.
 
+### supabase setup
+
+1. create a project at [supabase.com](https://supabase.com)
+2. run `supabase-schema.sql` in the SQL editor
+3. copy `.env.example` to `.env.local` and fill in your project URL + anon key
+4. for Vercel: add the same env vars in project settings
+
 ## status
 
-week 1 complete — single-device photo booth with full pipeline:
+week 1 — single-device photo booth:
 
 - camera preview with 3:4 crop, flip, 3-second countdown, shutter flash
 - dual-engine portrait segmentation (MediaPipe + TF.js iOS fallback)
@@ -70,6 +77,14 @@ week 1 complete — single-device photo booth with full pipeline:
 - film grain overlay + radial vignette post-processing
 - live lut re-grading after capture
 - responsive layout with safe-area insets and fluid sizing
+
+week 2 — cross-device collaboration (mode a):
+
+- supabase rooms with short codes + QR sharing
+- host creates room, takes photos, cutouts uploaded to storage
+- guest joins via link, sees host's cutout as ghost overlay for pose alignment
+- realtime room state sync via supabase postgres changes
+- landing page with start-a-duet / solo booth / join-by-code flows
 
 ## license
 
