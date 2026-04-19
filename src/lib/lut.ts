@@ -164,10 +164,13 @@ export function createLutRenderer(width: number, height: number): LutRenderer {
       gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      // try RGB32F first, fallback to RGB16F for mobile GPUs
+      const ext = gl.getExtension("EXT_color_buffer_float");
+      const internalFormat = ext ? gl.RGB32F : gl.RGB16F;
       gl.texImage3D(
         gl.TEXTURE_3D,
         0,
-        gl.RGB32F,
+        internalFormat,
         lut.size,
         lut.size,
         lut.size,

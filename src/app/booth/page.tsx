@@ -140,28 +140,41 @@ export default function BoothPage() {
     [lut, bgUrl, bgColor, depth, composite],
   );
 
-  const recomposite = useCallback(
-    async (newLut: LutPreset, newBgUrl?: string, newBgColor?: string, newDepth?: number) => {
-      if (selectedRef.current.length === 0) return;
-      setPhase("processing");
-      const strip = await composite(selectedRef.current, {
-        lut: newLut,
-        bgUrl: newBgUrl ?? bgUrl,
-        bgColor: newBgColor ?? bgColor,
-        depth: newDepth ?? depth,
-      });
-      setStripUrl(strip);
-      setPhase("done");
-    },
-    [bgUrl, bgColor, depth, composite],
-  );
+  // use refs for current settings so regenerate always reads latest
+  const lutRef = useRef(lut);
+  lutRef.current = lut;
+  const bgUrlRef = useRef(bgUrl);
+  bgUrlRef.current = bgUrl;
+  const bgColorRef = useRef(bgColor);
+  bgColorRef.current = bgColor;
+  const depthRef = useRef(depth);
+  depthRef.current = depth;
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+
+  const regenerate = useCallback(async () => {
+    if (selectedRef.current.length === 0) return;
+    setPhase("processing");
+    const strip = await composite(selectedRef.current, {
+      lut: lutRef.current,
+      bgUrl: bgUrlRef.current,
+      bgColor: bgColorRef.current,
+      depth: depthRef.current,
+    });
+    setStripUrl(strip);
+    setPhase("done");
+  }, [composite]);
 
   const handleLutChange = useCallback(
     (preset: LutPreset) => {
       setLut(preset);
-      if (phase === "done") recomposite(preset);
+      // schedule regenerate after state updates
+      if (phaseRef.current === "done") {
+        lutRef.current = preset;
+        regenerate();
+      }
     },
-    [phase, recomposite],
+    [regenerate],
   );
 
   const handleBgChange = useCallback(
@@ -169,15 +182,20 @@ export default function BoothPage() {
       setBgId(bg.id);
       setBgUrl(bg.url ?? undefined);
       setBgColor(bg.color);
-      if (phase === "done") recomposite(lut, bg.url ?? undefined, bg.color);
+      if (phaseRef.current === "done") {
+        bgUrlRef.current = bg.url ?? undefined;
+        bgColorRef.current = bg.color;
+        regenerate();
+      }
     },
-    [phase, lut, recomposite],
+    [regenerate],
   );
 
   const handleDepthChange = useCallback((v: number) => setDepth(v), []);
   const handleDepthCommit = useCallback(() => {
-    if (phase === "done") recomposite(lut, bgUrl, bgColor, depth);
-  }, [phase, lut, bgUrl, bgColor, depth, recomposite]);
+    depthRef.current = depth;
+    if (phaseRef.current === "done") regenerate();
+  }, [depth, regenerate]);
 
   const retake = useCallback(() => {
     allFramesRef.current = [];

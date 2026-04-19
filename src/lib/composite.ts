@@ -161,7 +161,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
       ctx.putImageData(graded, 0, 0);
       renderer.dispose();
     } catch (e) {
-      console.warn("[duet] LUT failed, skipping", e);
+      console.error("[duet] LUT failed:", e);
     }
   }
 
