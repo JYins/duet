@@ -10,6 +10,7 @@ import { useLocale } from "@/hooks/use-locale";
 import { captureFrame } from "@/lib/camera";
 import { generateStrip, type FrameLayout } from "@/lib/composite";
 import type { LutPreset } from "@/lib/lut";
+import { LUT_CSS_FILTERS } from "@/lib/lut";
 import Viewfinder from "@/components/viewfinder";
 import CountdownOverlay from "@/components/countdown-overlay";
 import ShutterFlash from "@/components/shutter-flash";
@@ -208,7 +209,7 @@ export default function BoothPage() {
               className="flex flex-col items-center gap-4 sm:gap-5"
             >
               <div className="relative">
-                <Viewfinder ref={videoRef} />
+                <Viewfinder ref={videoRef} cssFilter={LUT_CSS_FILTERS[lut]} />
                 <CountdownOverlay count={count} />
                 <ShutterFlash flash={flash} />
 
@@ -261,7 +262,6 @@ export default function BoothPage() {
                   animate={{ opacity: 1, y: 0 }}
                   className="flex flex-col items-center gap-3"
                 >
-                  <LayoutPicker value={frameLayout} onChange={handleLayoutChange} />
                   <LutPicker value={lut} onChange={(p) => { setLut(p); lutRef.current = p; }} />
 
                   <div className="flex items-center gap-4 text-[10px] tracking-wide text-[#8A8780]">

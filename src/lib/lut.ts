@@ -190,3 +190,12 @@ export const LUT_PRESETS: { id: LutPreset; label: string }[] = [
   { id: "cool-desat", label: "cool" },
   { id: "bw", label: "mono" },
 ];
+
+// CSS filter approximations for real-time viewfinder preview
+// exact LUT is still applied pixel-by-pixel during composite
+export const LUT_CSS_FILTERS: Record<LutPreset, string> = {
+  "none": "none",
+  "warm-film": "sepia(0.15) saturate(1.1) brightness(1.03) contrast(0.97)",
+  "cool-desat": "saturate(0.65) brightness(1.02) hue-rotate(10deg)",
+  "bw": "grayscale(1) contrast(1.3) brightness(1.05)",
+};

@@ -18,6 +18,7 @@ import {
 } from "@/lib/rooms";
 import type { Room } from "@/types/room";
 import type { LutPreset } from "@/lib/lut";
+import { LUT_CSS_FILTERS } from "@/lib/lut";
 import Viewfinder from "@/components/viewfinder";
 import CountdownOverlay from "@/components/countdown-overlay";
 import ShutterFlash from "@/components/shutter-flash";
@@ -189,7 +190,7 @@ export default function CreatePage() {
           {(phase === "ready" || phase === "shooting" || phase === "uploading") && (
             <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="flex flex-col items-center gap-4 sm:gap-5">
               <div className="relative">
-                <Viewfinder ref={videoRef} />
+                <Viewfinder ref={videoRef} cssFilter={LUT_CSS_FILTERS[lut]} />
                 <CountdownOverlay count={count} />
                 <ShutterFlash flash={flash} />
 
