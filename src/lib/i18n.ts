@@ -324,6 +324,28 @@ const translations = {
     zh: "房间已满",
     ko: "방이 가득 찼습니다",
   },
+
+  // ghost mode
+  "ghost.segmenting": {
+    en: "segmenting portraits...",
+    zh: "正在分割人像...",
+    ko: "인물 분리 중...",
+  },
+  "ghost.previewTitle": {
+    en: "check your cutouts",
+    zh: "检查抠图效果",
+    ko: "컷아웃을 확인하세요",
+  },
+  "ghost.looksGood": {
+    en: "looks good",
+    zh: "没问题",
+    ko: "괜찮아요",
+  },
+  "ghost.retakeThis": {
+    en: "retake",
+    zh: "重拍",
+    ko: "다시 찍기",
+  },
 } as const;
 
 export type TranslationKey = keyof typeof translations;

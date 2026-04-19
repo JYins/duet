@@ -9,7 +9,7 @@ import { useSessionId } from "@/hooks/use-session-id";
 import { findRoom } from "@/lib/rooms";
 import type { Room } from "@/types/room";
 import AsyncFlow from "./async-flow";
-// TODO: import GhostFlow from "./ghost-flow" when Phase 4 is built
+import GhostFlow from "./ghost-flow";
 
 export default function RoomPage() {
   const params = useParams<{ code: string }>();
@@ -66,8 +66,7 @@ export default function RoomPage() {
         {room && !loading && !error && (
           <>
             {room.mode === "ghost" ? (
-              // Phase 4 placeholder — for now fall back to async
-              <AsyncFlow room={room} sessionId={sessionId} />
+              <GhostFlow room={room} sessionId={sessionId} />
             ) : (
               <AsyncFlow room={room} sessionId={sessionId} />
             )}
