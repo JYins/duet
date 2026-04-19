@@ -9,7 +9,7 @@ import { applyGrain, applyVignette } from "./effects";
 
 // ---- layouts ----
 
-export type FrameLayout = "1x4" | "2x2" | "1x3" | "2x3";
+export type FrameLayout = "1x4" | "2x2" | "1x3" | "2x3" | "2x4" | "3x3";
 
 interface LayoutConfig {
   cols: number;
@@ -19,11 +19,13 @@ interface LayoutConfig {
   count: number;
 }
 
-function getLayout(layout: FrameLayout): LayoutConfig {
+export function getLayout(layout: FrameLayout): LayoutConfig {
   switch (layout) {
     case "2x2": return { cols: 2, rows: 2, frameW: 380, frameH: 506, count: 4 };
     case "1x3": return { cols: 1, rows: 3, frameW: 540, frameH: 720, count: 3 };
     case "2x3": return { cols: 2, rows: 3, frameW: 340, frameH: 453, count: 6 };
+    case "2x4": return { cols: 2, rows: 4, frameW: 380, frameH: 506, count: 8 };
+    case "3x3": return { cols: 3, rows: 3, frameW: 260, frameH: 346, count: 9 };
     default:    return { cols: 1, rows: 4, frameW: 540, frameH: 405, count: 4 };
   }
 }
@@ -34,7 +36,7 @@ const CORNER_R = 4;
 
 // ---- helpers ----
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -44,7 +46,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-function roundRect(
+export function roundRect(
   ctx: CanvasRenderingContext2D,
   x: number, y: number, w: number, h: number, r: number,
 ) {

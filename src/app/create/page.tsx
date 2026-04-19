@@ -129,7 +129,12 @@ export default function CreatePage() {
     stop();
 
     try {
-      const newRoom = await createRoom(lut);
+      const newRoom = await createRoom({
+        mode: "async",
+        layout: "2x2",
+        lutPreset: lut,
+        participantCount: 2,
+      });
       await uploadAllCutouts(newRoom.id, "host", photosRef.current);
       await updateRoom(newRoom.id, { status: "waiting" });
       setRoom(newRoom);
