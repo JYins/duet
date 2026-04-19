@@ -65,9 +65,9 @@ const translations = {
     ko: "심도",
   },
   "booth.selectPhotos": {
-    en: "select your best 4",
-    zh: "选择最好的 4 张",
-    ko: "베스트 4장을 선택하세요",
+    en: "select your favorites",
+    zh: "选择你最喜欢的",
+    ko: "마음에 드는 사진을 선택하세요",
   },
   "booth.confirmSelection": {
     en: "use these",
@@ -240,6 +240,89 @@ const translations = {
     en: "mono",
     zh: "黑白",
     ko: "모노",
+  },
+
+  // modes
+  "mode.async": {
+    en: "together",
+    zh: "一起拍",
+    ko: "함께 찍기",
+  },
+  "mode.asyncDesc": {
+    en: "everyone takes their own photos, combined into one strip",
+    zh: "每人拍自己的照片，合成一张",
+    ko: "각자 찍고 한 장으로 합성",
+  },
+  "mode.ghost": {
+    en: "ghost mode",
+    zh: "虚影合拍",
+    ko: "고스트 모드",
+  },
+  "mode.ghostDesc": {
+    en: "see your friend's silhouette while you shoot, look like you're together",
+    zh: "拍照时看到朋友的虚影，看起来像在一起",
+    ko: "친구의 실루엣을 보면서 촬영, 함께 있는 것처럼",
+  },
+
+  // config
+  "config.participants": {
+    en: "people",
+    zh: "人数",
+    ko: "인원",
+  },
+  "config.layout": {
+    en: "layout",
+    zh: "布局",
+    ko: "레이아웃",
+  },
+  "config.background": {
+    en: "background",
+    zh: "背景",
+    ko: "배경",
+  },
+  "config.createRoom": {
+    en: "create room",
+    zh: "创建房间",
+    ko: "방 만들기",
+  },
+
+  // waiting room
+  "waiting.participants": {
+    en: "participants",
+    zh: "参与者",
+    ko: "참여자",
+  },
+  "waiting.startShooting": {
+    en: "start my turn",
+    zh: "开始拍照",
+    ko: "내 차례 시작",
+  },
+  "waiting.waitingOthers": {
+    en: "waiting for others...",
+    zh: "等待其他人...",
+    ko: "다른 사람을 기다리는 중...",
+  },
+  "waiting.allSubmitted": {
+    en: "all done! generating strip...",
+    zh: "全部完成！正在生成...",
+    ko: "모두 완료! 생성 중...",
+  },
+
+  // join
+  "join.enterName": {
+    en: "your name",
+    zh: "你的名字",
+    ko: "이름을 입력하세요",
+  },
+  "join.join": {
+    en: "join room",
+    zh: "加入房间",
+    ko: "방 참여",
+  },
+  "join.full": {
+    en: "room is full",
+    zh: "房间已满",
+    ko: "방이 가득 찼습니다",
   },
 } as const;
 
