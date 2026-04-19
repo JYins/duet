@@ -10,7 +10,7 @@ interface BgPickerProps {
 
 export default function BgPicker({ value, onChange }: BgPickerProps) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
       {BACKGROUNDS.map((bg) => {
         const active = bg.id === value;
         return (
@@ -18,12 +18,13 @@ export default function BgPicker({ value, onChange }: BgPickerProps) {
             key={bg.id}
             onClick={() => onChange(bg)}
             whileTap={{ scale: 0.9 }}
-            className={`relative h-9 w-9 overflow-hidden rounded-full border-2 transition-all duration-300 sm:h-10 sm:w-10 ${
+            className={`relative h-8 w-8 overflow-hidden rounded-full border-2 transition-all duration-300 sm:h-9 sm:w-9 ${
               active
                 ? "border-[#2C2C2A] shadow-sm"
-                : "border-[#DDD9D0] hover:border-[#D4A574]"
+                : "border-[#2C2C2A]/[0.06] hover:border-[#D4A574]/40"
             }`}
             aria-label={bg.label}
+            title={bg.label}
           >
             {bg.url ? (
               <img
@@ -33,7 +34,7 @@ export default function BgPicker({ value, onChange }: BgPickerProps) {
                 loading="lazy"
               />
             ) : (
-              <div className="h-full w-full bg-[#EDE9DF]" />
+              <div className="h-full w-full" style={{ backgroundColor: bg.color }} />
             )}
           </motion.button>
         );

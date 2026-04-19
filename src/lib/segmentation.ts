@@ -69,7 +69,9 @@ async function createMediaPipeEngine(): Promise<SegmentationEngine> {
       // build RGBA mask: white where person, transparent where background
       const out = new ImageData(w, h);
       for (let i = 0; i < maskData.length; i++) {
-        const isPerson = maskData[i] > 0;
+        // selfie_segmenter: 0 = background, 255 = person
+        // but category mask maps: 0 = person, non-zero = background
+        const isPerson = maskData[i] === 0;
         const pi = i * 4;
         out.data[pi] = 255;
         out.data[pi + 1] = 255;

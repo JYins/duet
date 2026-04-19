@@ -6,6 +6,7 @@ import { Camera, RefreshCw, Loader2 } from "lucide-react";
 import { useCamera } from "@/hooks/use-camera";
 import { useCountdown } from "@/hooks/use-countdown";
 import { useSegmentation } from "@/hooks/use-segmentation";
+import { useLocale } from "@/hooks/use-locale";
 import { captureFrame } from "@/lib/camera";
 import { applyMask } from "@/lib/mask";
 import { applyDepthBlur } from "@/lib/blur";
@@ -20,11 +21,13 @@ import StripResult from "@/components/strip-result";
 import LutPicker from "@/components/lut-picker";
 import BgPicker from "@/components/bg-picker";
 import DepthSlider from "@/components/depth-slider";
-import { useLocale } from "@/hooks/use-locale";
+import PhotoSelector from "@/components/photo-selector";
 
-const TOTAL_SHOTS = 4;
+const MAX_SHOTS = 10;
+const PICK_COUNT = 4;
+const DEFAULT_COUNTDOWN = 5;
 
-type Phase = "ready" | "shooting" | "processing" | "done";
+type Phase = "ready" | "shooting" | "selecting" | "processing" | "done";
 
 interface CapturedFrame {
   raw: string;
@@ -34,41 +37,48 @@ interface CapturedFrame {
 
 export default function BoothPage() {
   const { videoRef, ready, error, start, stop, flip } = useCamera();
-  const { count, run: runCountdown } = useCountdown(3);
+  const { count, run: runCountdown } = useCountdown(DEFAULT_COUNTDOWN);
   const seg = useSegmentation();
+  const { t } = useLocale();
 
   const [phase, setPhase] = useState<Phase>("ready");
   const [shotCount, setShotCount] = useState(0);
+  const [totalShots, setTotalShots] = useState(MAX_SHOTS);
   const [flash, setFlash] = useState(false);
   const [lut, setLut] = useState<LutPreset>("warm-film");
   const [bgId, setBgId] = useState("cream");
   const [bgUrl, setBgUrl] = useState<string | undefined>(undefined);
+  const [bgColor, setBgColor] = useState("#EDE9DF");
   const [depth, setDepth] = useState(0);
+  const [countdownSec, setCountdownSec] = useState(DEFAULT_COUNTDOWN);
   const [stripUrl, setStripUrl] = useState<string | null>(null);
 
-  const { t } = useLocale();
-  const framesRef = useRef<CapturedFrame[]>([]);
+  // all captured frames (up to MAX_SHOTS)
+  const allFramesRef = useRef<CapturedFrame[]>([]);
+  // the 4 selected frames for the final strip
+  const selectedRef = useRef<CapturedFrame[]>([]);
 
   useEffect(() => {
     start("user");
     seg.init();
   }, [start, seg.init]);
 
-  // generate strip from captured frames with current settings
   const composite = useCallback(
-    async (frames: CapturedFrame[], opts: { lut: LutPreset; bg?: string; depth: number }) => {
+    async (
+      frames: CapturedFrame[],
+      opts: { lut: LutPreset; bgUrl?: string; bgColor: string; depth: number },
+    ) => {
       let cutouts = frames.map((f) => f.cutout);
-
-      // apply depth blur if > 0
       if (opts.depth > 0) {
         cutouts = await Promise.all(
           frames.map((f) => applyDepthBlur(f.raw, f.mask, opts.depth)),
         );
       }
-
       return generateStrip({
         cutouts,
-        background: opts.bg,
+        background: opts.bgUrl,
+        bgColor: opts.bgColor,
+        frameCount: PICK_COUNT,
         lut: opts.lut,
         grain: true,
         vignette: true,
@@ -81,78 +91,97 @@ export default function BoothPage() {
     if (!videoRef.current || !ready || !seg.ready) return;
 
     setPhase("shooting");
-    framesRef.current = [];
+    allFramesRef.current = [];
     setShotCount(0);
 
-    for (let i = 0; i < TOTAL_SHOTS; i++) {
-      await runCountdown();
+    for (let i = 0; i < totalShots; i++) {
+      await runCountdown(countdownSec);
       setFlash(true);
       setTimeout(() => setFlash(false), 50);
 
       const raw = captureFrame(videoRef.current);
       const mask = await seg.segment(videoRef.current);
       const cutout = await applyMask(raw, mask);
-      framesRef.current.push({ raw, mask, cutout });
+      allFramesRef.current.push({ raw, mask, cutout });
       setShotCount(i + 1);
     }
 
-    setPhase("processing");
     stop();
 
-    const strip = await composite(framesRef.current, { lut, bg: bgUrl, depth });
-    setStripUrl(strip);
-    setPhase("done");
-  }, [ready, seg.ready, videoRef, runCountdown, seg.segment, stop, lut, bgUrl, depth, composite]);
-
-  // re-composite when settings change after shooting
-  const recomposite = useCallback(
-    async (newLut: LutPreset, newBg?: string, newDepth?: number) => {
-      if (framesRef.current.length === 0) return;
+    // if exactly 4 shots, skip selection
+    if (totalShots <= PICK_COUNT) {
+      selectedRef.current = allFramesRef.current;
       setPhase("processing");
-      const strip = await composite(framesRef.current, {
+      const strip = await composite(selectedRef.current, {
+        lut, bgUrl, bgColor, depth,
+      });
+      setStripUrl(strip);
+      setPhase("done");
+    } else {
+      setPhase("selecting");
+    }
+  }, [ready, seg.ready, videoRef, runCountdown, seg.segment, stop, totalShots, countdownSec, lut, bgUrl, bgColor, depth, composite]);
+
+  // user confirmed their 4 picks
+  const onSelectionConfirm = useCallback(
+    async (selectedCutouts: string[]) => {
+      // find matching frames
+      selectedRef.current = selectedCutouts.map((cutout) => {
+        return allFramesRef.current.find((f) => f.cutout === cutout)!;
+      });
+
+      setPhase("processing");
+      const strip = await composite(selectedRef.current, {
+        lut, bgUrl, bgColor, depth,
+      });
+      setStripUrl(strip);
+      setPhase("done");
+    },
+    [lut, bgUrl, bgColor, depth, composite],
+  );
+
+  const recomposite = useCallback(
+    async (newLut: LutPreset, newBgUrl?: string, newBgColor?: string, newDepth?: number) => {
+      if (selectedRef.current.length === 0) return;
+      setPhase("processing");
+      const strip = await composite(selectedRef.current, {
         lut: newLut,
-        bg: newBg,
+        bgUrl: newBgUrl ?? bgUrl,
+        bgColor: newBgColor ?? bgColor,
         depth: newDepth ?? depth,
       });
       setStripUrl(strip);
       setPhase("done");
     },
-    [depth, composite],
+    [bgUrl, bgColor, depth, composite],
   );
 
   const handleLutChange = useCallback(
     (preset: LutPreset) => {
       setLut(preset);
-      if (phase === "done") recomposite(preset, bgUrl, depth);
+      if (phase === "done") recomposite(preset);
     },
-    [phase, bgUrl, depth, recomposite],
+    [phase, recomposite],
   );
 
   const handleBgChange = useCallback(
     (bg: Background) => {
       setBgId(bg.id);
       setBgUrl(bg.url ?? undefined);
-      if (phase === "done") recomposite(lut, bg.url ?? undefined, depth);
+      setBgColor(bg.color);
+      if (phase === "done") recomposite(lut, bg.url ?? undefined, bg.color);
     },
-    [phase, lut, depth, recomposite],
+    [phase, lut, recomposite],
   );
 
-  const handleDepthChange = useCallback(
-    (v: number) => {
-      setDepth(v);
-      // debounce: only recomposite on release (onMouseUp/onTouchEnd)
-      // for now just update state — user can tap "apply" or we recomposite on done
-    },
-    [],
-  );
-
-  // recomposite when depth slider stops (on pointer up)
+  const handleDepthChange = useCallback((v: number) => setDepth(v), []);
   const handleDepthCommit = useCallback(() => {
-    if (phase === "done") recomposite(lut, bgUrl, depth);
-  }, [phase, lut, bgUrl, depth, recomposite]);
+    if (phase === "done") recomposite(lut, bgUrl, bgColor, depth);
+  }, [phase, lut, bgUrl, bgColor, depth, recomposite]);
 
   const retake = useCallback(() => {
-    framesRef.current = [];
+    allFramesRef.current = [];
+    selectedRef.current = [];
     setShotCount(0);
     setStripUrl(null);
     setPhase("ready");
@@ -164,7 +193,6 @@ export default function BoothPage() {
 
   return (
     <main className="flex min-h-[100dvh] flex-col items-center bg-[#F5F2EA]">
-      {/* top bar */}
       <header className="flex w-full max-w-lg items-center justify-between px-4 pt-[max(env(safe-area-inset-top),1.5rem)] pb-3 sm:px-6 sm:pt-8">
         <motion.span
           initial={{ opacity: 0 }}
@@ -173,8 +201,7 @@ export default function BoothPage() {
         >
           Duet
         </motion.span>
-
-        {seg.runtime && phase !== "done" && (
+        {seg.runtime && phase !== "done" && phase !== "selecting" && (
           <motion.span
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -186,10 +213,10 @@ export default function BoothPage() {
         )}
       </header>
 
-      {/* main */}
       <div className="flex flex-1 flex-col items-center justify-center px-4 pb-[max(env(safe-area-inset-bottom),2rem)] sm:px-6">
         <AnimatePresence mode="wait">
-          {phase !== "done" ? (
+          {/* shooting phase */}
+          {(phase === "ready" || phase === "shooting" || phase === "processing") && (
             <motion.div
               key="camera"
               initial={{ opacity: 0 }}
@@ -198,13 +225,12 @@ export default function BoothPage() {
               transition={{ duration: 0.4 }}
               className="flex flex-col items-center gap-4 sm:gap-5"
             >
-              {/* viewfinder */}
               <div className="relative">
                 <Viewfinder ref={videoRef} />
                 <CountdownOverlay count={count} />
                 <ShutterFlash flash={flash} />
 
-                {modelLoading && (
+                {modelLoading && phase === "ready" && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#2C2C2A]/50 backdrop-blur-sm">
                     <Loader2 size={20} className="animate-spin text-white/80" />
                     <p className="text-[11px] tracking-wide text-white/60 sm:text-xs">
@@ -224,17 +250,17 @@ export default function BoothPage() {
 
                 {(error || seg.error) && (
                   <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-[#2C2C2A]/80 px-5">
-                    <p className="text-center text-xs leading-relaxed text-white/70 sm:text-sm">
-                      {error || seg.error}
-                    </p>
+                    <p className="text-center text-xs text-white/70">{error || seg.error}</p>
                   </div>
                 )}
               </div>
 
-              {/* shot counter */}
-              <ShotCounter total={TOTAL_SHOTS} current={shotCount} />
+              <ShotCounter
+                total={phase === "shooting" ? totalShots : PICK_COUNT}
+                current={shotCount}
+              />
 
-              {/* settings — before shooting */}
+              {/* pre-shoot settings */}
               {phase === "ready" && modelReady && (
                 <motion.div
                   initial={{ opacity: 0, y: 5 }}
@@ -244,6 +270,39 @@ export default function BoothPage() {
                 >
                   <BgPicker value={bgId} onChange={handleBgChange} />
                   <LutPicker value={lut} onChange={handleLutChange} />
+
+                  {/* countdown + shots config */}
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] tracking-wide text-[#8A8780] uppercase">
+                        {t("booth.countdown")}
+                      </span>
+                      <select
+                        value={countdownSec}
+                        onChange={(e) => setCountdownSec(Number(e.target.value))}
+                        className="rounded-full border border-[#DDD9D0] bg-transparent px-2 py-1 text-[10px] text-[#2C2C2A] focus:outline-none"
+                      >
+                        <option value={3}>3s</option>
+                        <option value={5}>5s</option>
+                        <option value={10}>10s</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] tracking-wide text-[#8A8780] uppercase">
+                        shots
+                      </span>
+                      <select
+                        value={totalShots}
+                        onChange={(e) => setTotalShots(Number(e.target.value))}
+                        className="rounded-full border border-[#DDD9D0] bg-transparent px-2 py-1 text-[10px] text-[#2C2C2A] focus:outline-none"
+                      >
+                        <option value={4}>4</option>
+                        <option value={6}>6</option>
+                        <option value={8}>8</option>
+                        <option value={10}>10</option>
+                      </select>
+                    </div>
+                  </div>
                 </motion.div>
               )}
 
@@ -251,38 +310,56 @@ export default function BoothPage() {
               <div className="flex items-center gap-5">
                 <button
                   onClick={flip}
-                  disabled={phase === "shooting" || phase === "processing"}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-[#DDD9D0] text-[#2C2C2A]/60 transition-all duration-300 hover:border-[#D4A574] hover:text-[#2C2C2A] disabled:opacity-30 sm:h-10 sm:w-10"
+                  disabled={phase !== "ready"}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-[#DDD9D0] text-[#2C2C2A]/60 transition-all duration-300 hover:border-[#D4A574] disabled:opacity-30 sm:h-10 sm:w-10"
                   aria-label="flip camera"
                 >
                   <RefreshCw size={15} />
                 </button>
-
                 <button
                   onClick={shoot}
-                  disabled={!modelReady || phase === "shooting" || phase === "processing"}
-                  className="group relative flex h-14 w-14 items-center justify-center rounded-full bg-[#2C2C2A] transition-all duration-300 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:hover:scale-100 sm:h-16 sm:w-16"
-                  aria-label="take 4 photos"
+                  disabled={!modelReady || phase !== "ready"}
+                  className="group relative flex h-14 w-14 items-center justify-center rounded-full bg-[#2C2C2A] transition-all duration-300 hover:scale-105 active:scale-95 disabled:opacity-30 sm:h-16 sm:w-16"
+                  aria-label="take photos"
                 >
-                  <span className="absolute inset-0 rounded-full border-2 border-[#2C2C2A]/20 transition-all duration-300 group-hover:border-[#D4A574]/40" />
+                  <span className="absolute inset-0 rounded-full border-2 border-[#2C2C2A]/20 group-hover:border-[#D4A574]/40" />
                   <Camera size={18} className="text-[#F5F2EA] sm:h-5 sm:w-5" />
                 </button>
-
                 <div className="h-9 w-9 sm:h-10 sm:w-10" />
               </div>
 
               {phase === "ready" && modelReady && (
                 <motion.p
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5, duration: 0.5 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.5 }}
                   className="text-[10px] tracking-wide text-[#8A8780] sm:text-xs"
                 >
                   {t("booth.tapToShoot")}
                 </motion.p>
               )}
             </motion.div>
-          ) : (
+          )}
+
+          {/* selection phase */}
+          {phase === "selecting" && (
+            <motion.div
+              key="select"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.4 }}
+            >
+              <PhotoSelector
+                photos={allFramesRef.current.map((f) => f.cutout)}
+                maxSelect={PICK_COUNT}
+                onConfirm={onSelectionConfirm}
+              />
+            </motion.div>
+          )}
+
+          {/* result phase */}
+          {phase === "done" && stripUrl && (
             <motion.div
               key="result"
               initial={{ opacity: 0 }}
@@ -290,9 +367,7 @@ export default function BoothPage() {
               transition={{ duration: 0.5 }}
               className="flex flex-col items-center gap-5"
             >
-              {stripUrl && <StripResult stripUrl={stripUrl} onRetake={retake} />}
-
-              {/* post-shoot controls */}
+              <StripResult stripUrl={stripUrl} onRetake={retake} />
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}

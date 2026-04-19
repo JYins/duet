@@ -64,6 +64,21 @@ const translations = {
     zh: "景深",
     ko: "심도",
   },
+  "booth.selectPhotos": {
+    en: "select your best 4",
+    zh: "选择最好的 4 张",
+    ko: "베스트 4장을 선택하세요",
+  },
+  "booth.confirmSelection": {
+    en: "use these",
+    zh: "就这些",
+    ko: "이걸로",
+  },
+  "booth.countdown": {
+    en: "countdown",
+    zh: "倒计时",
+    ko: "카운트다운",
+  },
 
   // result
   "result.retake": {

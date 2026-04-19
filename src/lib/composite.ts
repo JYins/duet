@@ -1,23 +1,16 @@
 // composites segmented portraits onto a shared background
-// and generates a korean-style 1x4 photo strip with LUT + grain + vignette
+// and generates a korean-style photo strip with LUT + grain + vignette
 //
-// supports two modes:
-// - solo: one person per frame (4 cutouts)
-// - duet: two people per frame (4 host cutouts + 4 guest cutouts)
+// solo: one person per frame, duet: two people per frame
 
 import { createLutRenderer, getLutByPreset, type LutPreset } from "./lut";
 import { applyGrain, applyVignette } from "./effects";
 
 const FRAME_W = 540;
 const FRAME_H = 720;
-const STRIP_ROWS = 4;
 const PAD = 24;
 const INNER_GAP = 12;
 const CORNER_R = 6;
-
-const STRIP_W = PAD * 2 + FRAME_W;
-const STRIP_H =
-  PAD * 2 + FRAME_H * STRIP_ROWS + INNER_GAP * (STRIP_ROWS - 1);
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -50,38 +43,12 @@ function roundRect(
   ctx.closePath();
 }
 
-// draw a cutout into a frame, positioned left/right/center
-function drawCutout(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  fx: number,
-  fy: number,
-  fw: number,
-  fh: number,
-  position: "left" | "right" | "center",
-) {
-  // scale to fit frame height
-  const scale = Math.min((fw * 0.65) / img.width, fh / img.height);
-  const cw = img.width * scale;
-  const ch = img.height * scale;
-
-  let cx: number;
-  if (position === "left") {
-    cx = fx + fw * 0.25 - cw / 2;
-  } else if (position === "right") {
-    cx = fx + fw * 0.75 - cw / 2;
-  } else {
-    cx = fx + (fw - cw) / 2;
-  }
-  const cy = fy + (fh - ch);
-
-  ctx.drawImage(img, cx, cy, cw, ch);
-}
-
 export interface CompositeOptions {
   cutouts: string[];
-  partnerCutouts?: string[]; // host's cutouts when in duet mode
-  background?: string;
+  partnerCutouts?: string[];
+  background?: string; // url or null for solid
+  bgColor?: string; // solid color fallback
+  frameCount?: number; // how many frames (default 4)
   lut?: LutPreset;
   grain?: boolean;
   vignette?: boolean;
@@ -94,6 +61,8 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     cutouts,
     partnerCutouts,
     background,
+    bgColor = "#EDE9DF",
+    frameCount = 4,
     lut = "warm-film",
     grain = true,
     vignette = true,
@@ -101,7 +70,11 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     title,
   } = opts;
 
+  const rows = Math.min(cutouts.length, frameCount);
   const isDuet = partnerCutouts && partnerCutouts.length > 0;
+
+  const STRIP_W = PAD * 2 + FRAME_W;
+  const STRIP_H = PAD * 2 + FRAME_H * rows + INNER_GAP * (rows - 1);
   const totalH = STRIP_H + 60;
 
   const canvas = document.createElement("canvas");
@@ -113,7 +86,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   ctx.fillStyle = "#FDFCF9";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // load background
+  // load background image if provided
   let bgImg: HTMLImageElement | null = null;
   if (background) {
     try {
@@ -124,8 +97,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   }
 
   // draw each frame
-  const frameCount = Math.min(cutouts.length, STRIP_ROWS);
-  for (let i = 0; i < frameCount; i++) {
+  for (let i = 0; i < rows; i++) {
     const x = PAD;
     const y = PAD + i * (FRAME_H + INNER_GAP);
 
@@ -133,50 +105,40 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     roundRect(ctx, x, y, FRAME_W, FRAME_H, CORNER_R);
     ctx.clip();
 
-    // background
+    // background fill
     if (bgImg) {
       const scale = Math.max(FRAME_W / bgImg.width, FRAME_H / bgImg.height);
       const sw = bgImg.width * scale;
       const sh = bgImg.height * scale;
-      ctx.drawImage(
-        bgImg,
-        x + (FRAME_W - sw) / 2,
-        y + (FRAME_H - sh) / 2,
-        sw,
-        sh,
-      );
+      ctx.drawImage(bgImg, x + (FRAME_W - sw) / 2, y + (FRAME_H - sh) / 2, sw, sh);
     } else {
-      ctx.fillStyle = "#EDE9DF";
+      ctx.fillStyle = bgColor;
       ctx.fillRect(x, y, FRAME_W, FRAME_H);
     }
 
+    // draw cutouts
     if (isDuet && partnerCutouts[i]) {
-      // duet mode: two people per frame
-      // partner (host) on the left, self (guest) on the right
+      // duet: partner left, self right
       try {
         const partner = await loadImage(partnerCutouts[i]);
-        drawCutout(ctx, partner, x, y, FRAME_W, FRAME_H, "left");
+        drawPerson(ctx, partner, x, y, FRAME_W, FRAME_H, "left");
       } catch {
-        // partner cutout failed to load, skip
+        // partner image failed, skip
       }
-      const self = await loadImage(cutouts[i]);
-      drawCutout(ctx, self, x, y, FRAME_W, FRAME_H, "right");
+      try {
+        const self = await loadImage(cutouts[i]);
+        drawPerson(ctx, self, x, y, FRAME_W, FRAME_H, "right");
+      } catch {
+        // self image failed
+      }
     } else {
-      // solo mode: single person centered
-      const cutout = await loadImage(cutouts[i]);
-      const cutScale = Math.min(
-        FRAME_W / cutout.width,
-        FRAME_H / cutout.height,
-      );
-      const cw = cutout.width * cutScale;
-      const ch = cutout.height * cutScale;
-      ctx.drawImage(
-        cutout,
-        x + (FRAME_W - cw) / 2,
-        y + (FRAME_H - ch) / 2,
-        cw,
-        ch,
-      );
+      // solo: centered
+      try {
+        const person = await loadImage(cutouts[i]);
+        drawPerson(ctx, person, x, y, FRAME_W, FRAME_H, "center");
+      } catch {
+        // image failed
+      }
     }
 
     ctx.restore();
@@ -190,7 +152,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     ctx.restore();
   }
 
-  // ---- apply LUT to the photo area ----
+  // apply LUT
   if (lut !== "none") {
     try {
       const lutData = getLutByPreset(lut);
@@ -203,27 +165,20 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     }
   }
 
-  // ---- grain + vignette ----
-  if (grain) {
-    applyGrain(ctx, canvas.width, STRIP_H, 0.04);
-  }
-  if (vignette) {
-    applyVignette(ctx, canvas.width, STRIP_H, 0.2);
-  }
+  // grain + vignette on photo area
+  if (grain) applyGrain(ctx, canvas.width, STRIP_H, 0.04);
+  if (vignette) applyVignette(ctx, canvas.width, STRIP_H, 0.2);
 
-  // re-draw paper border clean
+  // clean the stamp area
   ctx.fillStyle = "#FDFCF9";
   ctx.fillRect(0, STRIP_H, canvas.width, totalH - STRIP_H);
 
   // date stamp
-  const stampY = STRIP_H + 30;
   ctx.fillStyle = "#8A8780";
   ctx.font = "italic 13px Georgia, 'Times New Roman', serif";
   ctx.textAlign = "center";
-  const stampText = [title || "duet", date || formatDate()]
-    .filter(Boolean)
-    .join("  ·  ");
-  ctx.fillText(stampText, canvas.width / 2, stampY);
+  const stampText = [title || "Duet", date || formatDate()].filter(Boolean).join("  ·  ");
+  ctx.fillText(stampText, canvas.width / 2, STRIP_H + 30);
 
   // outer border
   ctx.strokeStyle = "rgba(44, 44, 42, 0.06)";
@@ -232,6 +187,35 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   ctx.stroke();
 
   return canvas.toDataURL("image/png");
+}
+
+// draw a person cutout into a frame at left/right/center position
+function drawPerson(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  fx: number,
+  fy: number,
+  fw: number,
+  fh: number,
+  position: "left" | "right" | "center",
+) {
+  // scale to fill frame height, maintain aspect ratio
+  const scale = fh / img.height;
+  const cw = img.width * scale;
+  const ch = img.height * scale;
+
+  let cx: number;
+  if (position === "center") {
+    cx = fx + (fw - cw) / 2;
+  } else if (position === "left") {
+    // shift left person slightly left of center
+    cx = fx + fw * 0.5 - cw * 0.75;
+  } else {
+    // shift right person slightly right of center
+    cx = fx + fw * 0.5 - cw * 0.25;
+  }
+
+  ctx.drawImage(img, cx, fy + (fh - ch), cw, ch);
 }
 
 function formatDate(): string {

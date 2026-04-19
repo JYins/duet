@@ -2,27 +2,31 @@
 
 import { useState, useCallback, useRef } from "react";
 
-export function useCountdown(seconds = 3) {
+export function useCountdown(defaultSeconds = 5) {
   const [count, setCount] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
-  const run = useCallback((): Promise<void> => {
-    return new Promise((resolve) => {
-      let remaining = seconds;
-      setCount(remaining);
+  const run = useCallback(
+    (seconds?: number): Promise<void> => {
+      const duration = seconds ?? defaultSeconds;
+      return new Promise((resolve) => {
+        let remaining = duration;
+        setCount(remaining);
 
-      timerRef.current = setInterval(() => {
-        remaining -= 1;
-        if (remaining <= 0) {
-          clearInterval(timerRef.current);
-          setCount(null);
-          resolve();
-        } else {
-          setCount(remaining);
-        }
-      }, 1000);
-    });
-  }, [seconds]);
+        timerRef.current = setInterval(() => {
+          remaining -= 1;
+          if (remaining <= 0) {
+            clearInterval(timerRef.current);
+            setCount(null);
+            resolve();
+          } else {
+            setCount(remaining);
+          }
+        }, 1000);
+      });
+    },
+    [defaultSeconds],
+  );
 
   const cancel = useCallback(() => {
     clearInterval(timerRef.current);
