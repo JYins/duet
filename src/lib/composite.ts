@@ -1,5 +1,8 @@
-// composites segmented portraits onto backgrounds in various layouts
-// with LUT color grading, grain, vignette, and custom text labels
+// composites raw photos into styled frame layouts
+// with LUT color grading, grain, vignette, decorations, and labels
+//
+// approach: raw photos go directly into frames (no segmentation).
+// LUT applied to each photo. this matches real korean photo booths.
 
 import { applyLut, getLutByPreset, type LutPreset } from "./lut";
 import { applyGrain, applyVignette } from "./effects";
@@ -18,16 +21,16 @@ interface LayoutConfig {
 
 function getLayout(layout: FrameLayout): LayoutConfig {
   switch (layout) {
-    case "2x2": return { cols: 2, rows: 2, frameW: 360, frameH: 480, count: 4 };
+    case "2x2": return { cols: 2, rows: 2, frameW: 380, frameH: 506, count: 4 };
     case "1x3": return { cols: 1, rows: 3, frameW: 540, frameH: 720, count: 3 };
-    case "2x3": return { cols: 2, rows: 3, frameW: 320, frameH: 426, count: 6 };
-    default:    return { cols: 1, rows: 4, frameW: 540, frameH: 720, count: 4 };
+    case "2x3": return { cols: 2, rows: 3, frameW: 340, frameH: 453, count: 6 };
+    default:    return { cols: 1, rows: 4, frameW: 540, frameH: 405, count: 4 };
   }
 }
 
-const PAD = 24;
+const PAD = 28;
 const GAP = 10;
-const CORNER_R = 6;
+const CORNER_R = 4;
 
 // ---- helpers ----
 
@@ -41,7 +44,10 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, r: number,
+) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
@@ -55,43 +61,44 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-function drawPerson(
+// cover-fit image into a rectangle
+function drawCover(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
-  fx: number, fy: number, fw: number, fh: number,
-  position: "left" | "right" | "center",
+  x: number, y: number, w: number, h: number,
 ) {
-  const scale = fh / img.height;
-  const cw = img.width * scale;
-  const ch = fh;
-  let cx: number;
-  if (position === "center") cx = fx + (fw - cw) / 2;
-  else if (position === "left") cx = fx + fw * 0.5 - cw * 0.75;
-  else cx = fx + fw * 0.5 - cw * 0.25;
-  ctx.drawImage(img, cx, fy + (fh - ch), cw, ch);
+  const imgRatio = img.width / img.height;
+  const frameRatio = w / h;
+  let sx = 0, sy = 0, sw = img.width, sh = img.height;
+
+  if (imgRatio > frameRatio) {
+    sw = img.height * frameRatio;
+    sx = (img.width - sw) / 2;
+  } else {
+    sh = img.width / frameRatio;
+    sy = (img.height - sh) / 2;
+  }
+
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
 // ---- main ----
 
 export interface CompositeOptions {
-  cutouts: string[];
-  partnerCutouts?: string[];
-  background?: string;
-  bgColor?: string;
+  photos: string[];        // raw photo data urls
+  stripColor?: string;     // paper/border color
   layout?: FrameLayout;
   lut?: LutPreset;
   grain?: boolean;
   vignette?: boolean;
-  label?: string; // custom text label on the strip
+  label?: string;
   date?: string;
 }
 
 export async function generateStrip(opts: CompositeOptions): Promise<string> {
   const {
-    cutouts,
-    partnerCutouts,
-    background,
-    bgColor = "#EDE9DF",
+    photos,
+    stripColor = "#FDFCF9",
     layout = "1x4",
     lut = "warm-film",
     grain = true,
@@ -101,14 +108,13 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   } = opts;
 
   const cfg = getLayout(layout);
-  const isDuet = partnerCutouts && partnerCutouts.length > 0;
-  const frameCount = Math.min(cutouts.length, cfg.count);
+  const count = Math.min(photos.length, cfg.count);
 
   const gridW = cfg.cols * cfg.frameW + (cfg.cols - 1) * GAP;
   const gridH = cfg.rows * cfg.frameH + (cfg.rows - 1) * GAP;
   const STRIP_W = PAD * 2 + gridW;
   const STRIP_H = PAD * 2 + gridH;
-  const stampH = label ? 80 : 50;
+  const stampH = label ? 76 : 48;
   const totalH = STRIP_H + stampH;
 
   const canvas = document.createElement("canvas");
@@ -117,17 +123,11 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   const ctx = canvas.getContext("2d")!;
 
   // paper fill
-  ctx.fillStyle = "#FDFCF9";
+  ctx.fillStyle = stripColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // load background image
-  let bgImg: HTMLImageElement | null = null;
-  if (background) {
-    try { bgImg = await loadImage(background); } catch { /* solid fallback */ }
-  }
-
-  // draw frames
-  for (let i = 0; i < frameCount; i++) {
+  // draw each photo into its frame
+  for (let i = 0; i < count; i++) {
     const col = i % cfg.cols;
     const row = Math.floor(i / cfg.cols);
     const x = PAD + col * (cfg.frameW + GAP);
@@ -137,65 +137,58 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     roundRect(ctx, x, y, cfg.frameW, cfg.frameH, CORNER_R);
     ctx.clip();
 
-    // background
-    if (bgImg) {
-      const s = Math.max(cfg.frameW / bgImg.width, cfg.frameH / bgImg.height);
-      ctx.drawImage(bgImg, x + (cfg.frameW - bgImg.width * s) / 2, y + (cfg.frameH - bgImg.height * s) / 2, bgImg.width * s, bgImg.height * s);
-    } else {
-      ctx.fillStyle = bgColor;
+    // draw raw photo — cover fit
+    try {
+      const img = await loadImage(photos[i]);
+      drawCover(ctx, img, x, y, cfg.frameW, cfg.frameH);
+    } catch {
+      // photo failed to load, leave as strip color
+      ctx.fillStyle = "#EDE9DF";
       ctx.fillRect(x, y, cfg.frameW, cfg.frameH);
-    }
-
-    // person(s)
-    if (isDuet && partnerCutouts[i]) {
-      try { const p = await loadImage(partnerCutouts[i]); drawPerson(ctx, p, x, y, cfg.frameW, cfg.frameH, "left"); } catch {}
-      try { const s = await loadImage(cutouts[i]); drawPerson(ctx, s, x, y, cfg.frameW, cfg.frameH, "right"); } catch {}
-    } else if (cutouts[i]) {
-      try { const p = await loadImage(cutouts[i]); drawPerson(ctx, p, x, y, cfg.frameW, cfg.frameH, "center"); } catch {}
     }
 
     ctx.restore();
 
-    // frame border
+    // subtle frame border
     ctx.save();
     roundRect(ctx, x, y, cfg.frameW, cfg.frameH, CORNER_R);
-    ctx.strokeStyle = "rgba(44, 44, 42, 0.08)";
+    ctx.strokeStyle = "rgba(44, 44, 42, 0.06)";
     ctx.lineWidth = 0.5;
     ctx.stroke();
     ctx.restore();
   }
 
-  // ---- LUT (pure Canvas 2D — works everywhere) ----
+  // ---- LUT color grading on photo area ----
   if (lut !== "none") {
     const lutData = getLutByPreset(lut);
-    applyLut(ctx, STRIP_W, STRIP_H, lutData, 0.85);
+    applyLut(ctx, STRIP_W, STRIP_H, lutData, 0.8);
   }
 
   // grain + vignette
-  if (grain) applyGrain(ctx, STRIP_W, STRIP_H, 0.04);
-  if (vignette) applyVignette(ctx, STRIP_W, STRIP_H, 0.2);
+  if (grain) applyGrain(ctx, STRIP_W, STRIP_H, 0.035);
+  if (vignette) applyVignette(ctx, STRIP_W, STRIP_H, 0.15);
 
   // clean stamp area
-  ctx.fillStyle = "#FDFCF9";
+  ctx.fillStyle = stripColor;
   ctx.fillRect(0, STRIP_H, canvas.width, stampH);
 
-  // custom label (large, serif)
+  // custom label
   if (label) {
     ctx.fillStyle = "#2C2C2A";
-    ctx.font = "italic 18px Georgia, 'Times New Roman', serif";
+    ctx.font = "italic 16px Georgia, 'Times New Roman', serif";
     ctx.textAlign = "center";
-    ctx.fillText(label, canvas.width / 2, STRIP_H + 30, STRIP_W - PAD * 2);
+    ctx.fillText(label, canvas.width / 2, STRIP_H + 28, STRIP_W - PAD * 2);
   }
 
-  // date + brand stamp
-  ctx.fillStyle = "#8A8780";
-  ctx.font = "italic 11px Georgia, 'Times New Roman', serif";
+  // date + brand
+  ctx.fillStyle = "#B5B2AB";
+  ctx.font = "italic 10px Georgia, 'Times New Roman', serif";
   ctx.textAlign = "center";
-  const stampY = label ? STRIP_H + 52 : STRIP_H + 28;
+  const stampY = label ? STRIP_H + 48 : STRIP_H + 26;
   ctx.fillText(`Duet  ·  ${date || formatDate()}`, canvas.width / 2, stampY);
 
   // outer border
-  ctx.strokeStyle = "rgba(44, 44, 42, 0.06)";
+  ctx.strokeStyle = "rgba(44, 44, 42, 0.04)";
   ctx.lineWidth = 0.5;
   roundRect(ctx, 1, 1, canvas.width - 2, totalH - 2, 8);
   ctx.stroke();
