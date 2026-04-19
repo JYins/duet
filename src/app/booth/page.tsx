@@ -10,7 +10,7 @@ import { useLocale } from "@/hooks/use-locale";
 import { captureFrame } from "@/lib/camera";
 import { applyMask } from "@/lib/mask";
 import { applyDepthBlur } from "@/lib/blur";
-import { generateStrip } from "@/lib/composite";
+import { generateStrip, type FrameLayout } from "@/lib/composite";
 import type { LutPreset } from "@/lib/lut";
 import type { Background } from "@/lib/backgrounds";
 import Viewfinder from "@/components/viewfinder";
@@ -22,6 +22,8 @@ import LutPicker from "@/components/lut-picker";
 import BgPicker from "@/components/bg-picker";
 import DepthSlider from "@/components/depth-slider";
 import PhotoSelector from "@/components/photo-selector";
+import LayoutPicker from "@/components/layout-picker";
+import LabelInput from "@/components/label-input";
 
 const MAX_SHOTS = 10;
 const PICK_COUNT = 4;
@@ -51,6 +53,8 @@ export default function BoothPage() {
   const [bgColor, setBgColor] = useState("#EDE9DF");
   const [depth, setDepth] = useState(0);
   const [countdownSec, setCountdownSec] = useState(DEFAULT_COUNTDOWN);
+  const [frameLayout, setFrameLayout] = useState<FrameLayout>("1x4");
+  const [customLabel, setCustomLabel] = useState("");
   const [stripUrl, setStripUrl] = useState<string | null>(null);
 
   // all captured frames (up to MAX_SHOTS)
@@ -62,6 +66,11 @@ export default function BoothPage() {
     start("user");
     seg.init();
   }, [start, seg.init]);
+
+  const layoutRef = useRef(frameLayout);
+  layoutRef.current = frameLayout;
+  const labelRef = useRef(customLabel);
+  labelRef.current = customLabel;
 
   const composite = useCallback(
     async (
@@ -78,10 +87,11 @@ export default function BoothPage() {
         cutouts,
         background: opts.bgUrl,
         bgColor: opts.bgColor,
-        frameCount: PICK_COUNT,
+        layout: layoutRef.current,
         lut: opts.lut,
         grain: true,
         vignette: true,
+        label: labelRef.current || undefined,
       });
     },
     [],
@@ -196,6 +206,24 @@ export default function BoothPage() {
     depthRef.current = depth;
     if (phaseRef.current === "done") regenerate();
   }, [depth, regenerate]);
+
+  const handleLayoutChange = useCallback(
+    (l: FrameLayout) => {
+      setFrameLayout(l);
+      layoutRef.current = l;
+      if (phaseRef.current === "done") regenerate();
+    },
+    [regenerate],
+  );
+
+  const handleLabelChange = useCallback((v: string) => {
+    setCustomLabel(v);
+    labelRef.current = v;
+  }, []);
+
+  const handleLabelBlur = useCallback(() => {
+    if (phaseRef.current === "done") regenerate();
+  }, [regenerate]);
 
   const retake = useCallback(() => {
     allFramesRef.current = [];
@@ -392,10 +420,14 @@ export default function BoothPage() {
                 transition={{ delay: 0.4 }}
                 className="flex flex-col items-center gap-3"
               >
+                <LayoutPicker value={frameLayout} onChange={handleLayoutChange} />
                 <BgPicker value={bgId} onChange={handleBgChange} />
                 <LutPicker value={lut} onChange={handleLutChange} />
                 <div onPointerUp={handleDepthCommit} onTouchEnd={handleDepthCommit}>
                   <DepthSlider value={depth} onChange={handleDepthChange} />
+                </div>
+                <div onBlur={handleLabelBlur}>
+                  <LabelInput value={customLabel} onChange={handleLabelChange} />
                 </div>
               </motion.div>
             </motion.div>

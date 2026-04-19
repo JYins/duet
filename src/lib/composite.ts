@@ -1,16 +1,35 @@
-// composites segmented portraits onto a shared background
-// and generates a korean-style photo strip with LUT + grain + vignette
-//
-// solo: one person per frame, duet: two people per frame
+// composites segmented portraits onto backgrounds in various layouts
+// with LUT color grading, grain, vignette, and custom text labels
 
-import { createLutRenderer, getLutByPreset, type LutPreset } from "./lut";
+import { applyLut, getLutByPreset, type LutPreset } from "./lut";
 import { applyGrain, applyVignette } from "./effects";
 
-const FRAME_W = 540;
-const FRAME_H = 720;
+// ---- layouts ----
+
+export type FrameLayout = "1x4" | "2x2" | "1x3" | "2x3";
+
+interface LayoutConfig {
+  cols: number;
+  rows: number;
+  frameW: number;
+  frameH: number;
+  count: number;
+}
+
+function getLayout(layout: FrameLayout): LayoutConfig {
+  switch (layout) {
+    case "2x2": return { cols: 2, rows: 2, frameW: 360, frameH: 480, count: 4 };
+    case "1x3": return { cols: 1, rows: 3, frameW: 540, frameH: 720, count: 3 };
+    case "2x3": return { cols: 2, rows: 3, frameW: 320, frameH: 426, count: 6 };
+    default:    return { cols: 1, rows: 4, frameW: 540, frameH: 720, count: 4 };
+  }
+}
+
 const PAD = 24;
-const INNER_GAP = 12;
+const GAP = 10;
 const CORNER_R = 6;
+
+// ---- helpers ----
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -22,14 +41,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
@@ -43,17 +55,35 @@ function roundRect(
   ctx.closePath();
 }
 
+function drawPerson(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  fx: number, fy: number, fw: number, fh: number,
+  position: "left" | "right" | "center",
+) {
+  const scale = fh / img.height;
+  const cw = img.width * scale;
+  const ch = fh;
+  let cx: number;
+  if (position === "center") cx = fx + (fw - cw) / 2;
+  else if (position === "left") cx = fx + fw * 0.5 - cw * 0.75;
+  else cx = fx + fw * 0.5 - cw * 0.25;
+  ctx.drawImage(img, cx, fy + (fh - ch), cw, ch);
+}
+
+// ---- main ----
+
 export interface CompositeOptions {
   cutouts: string[];
   partnerCutouts?: string[];
-  background?: string; // url or null for solid
-  bgColor?: string; // solid color fallback
-  frameCount?: number; // how many frames (default 4)
+  background?: string;
+  bgColor?: string;
+  layout?: FrameLayout;
   lut?: LutPreset;
   grain?: boolean;
   vignette?: boolean;
+  label?: string; // custom text label on the strip
   date?: string;
-  title?: string;
 }
 
 export async function generateStrip(opts: CompositeOptions): Promise<string> {
@@ -62,123 +92,107 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     partnerCutouts,
     background,
     bgColor = "#EDE9DF",
-    frameCount = 4,
+    layout = "1x4",
     lut = "warm-film",
     grain = true,
     vignette = true,
+    label,
     date,
-    title,
   } = opts;
 
-  const rows = Math.min(cutouts.length, frameCount);
+  const cfg = getLayout(layout);
   const isDuet = partnerCutouts && partnerCutouts.length > 0;
+  const frameCount = Math.min(cutouts.length, cfg.count);
 
-  const STRIP_W = PAD * 2 + FRAME_W;
-  const STRIP_H = PAD * 2 + FRAME_H * rows + INNER_GAP * (rows - 1);
-  const totalH = STRIP_H + 60;
+  const gridW = cfg.cols * cfg.frameW + (cfg.cols - 1) * GAP;
+  const gridH = cfg.rows * cfg.frameH + (cfg.rows - 1) * GAP;
+  const STRIP_W = PAD * 2 + gridW;
+  const STRIP_H = PAD * 2 + gridH;
+  const stampH = label ? 80 : 50;
+  const totalH = STRIP_H + stampH;
 
   const canvas = document.createElement("canvas");
   canvas.width = STRIP_W;
   canvas.height = totalH;
   const ctx = canvas.getContext("2d")!;
 
-  // paper white fill
+  // paper fill
   ctx.fillStyle = "#FDFCF9";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // load background image if provided
+  // load background image
   let bgImg: HTMLImageElement | null = null;
   if (background) {
-    try {
-      bgImg = await loadImage(background);
-    } catch {
-      // solid fallback
-    }
+    try { bgImg = await loadImage(background); } catch { /* solid fallback */ }
   }
 
-  // draw each frame
-  for (let i = 0; i < rows; i++) {
-    const x = PAD;
-    const y = PAD + i * (FRAME_H + INNER_GAP);
+  // draw frames
+  for (let i = 0; i < frameCount; i++) {
+    const col = i % cfg.cols;
+    const row = Math.floor(i / cfg.cols);
+    const x = PAD + col * (cfg.frameW + GAP);
+    const y = PAD + row * (cfg.frameH + GAP);
 
     ctx.save();
-    roundRect(ctx, x, y, FRAME_W, FRAME_H, CORNER_R);
+    roundRect(ctx, x, y, cfg.frameW, cfg.frameH, CORNER_R);
     ctx.clip();
 
-    // background fill
+    // background
     if (bgImg) {
-      const scale = Math.max(FRAME_W / bgImg.width, FRAME_H / bgImg.height);
-      const sw = bgImg.width * scale;
-      const sh = bgImg.height * scale;
-      ctx.drawImage(bgImg, x + (FRAME_W - sw) / 2, y + (FRAME_H - sh) / 2, sw, sh);
+      const s = Math.max(cfg.frameW / bgImg.width, cfg.frameH / bgImg.height);
+      ctx.drawImage(bgImg, x + (cfg.frameW - bgImg.width * s) / 2, y + (cfg.frameH - bgImg.height * s) / 2, bgImg.width * s, bgImg.height * s);
     } else {
       ctx.fillStyle = bgColor;
-      ctx.fillRect(x, y, FRAME_W, FRAME_H);
+      ctx.fillRect(x, y, cfg.frameW, cfg.frameH);
     }
 
-    // draw cutouts
+    // person(s)
     if (isDuet && partnerCutouts[i]) {
-      // duet: partner left, self right
-      try {
-        const partner = await loadImage(partnerCutouts[i]);
-        drawPerson(ctx, partner, x, y, FRAME_W, FRAME_H, "left");
-      } catch {
-        // partner image failed, skip
-      }
-      try {
-        const self = await loadImage(cutouts[i]);
-        drawPerson(ctx, self, x, y, FRAME_W, FRAME_H, "right");
-      } catch {
-        // self image failed
-      }
-    } else {
-      // solo: centered
-      try {
-        const person = await loadImage(cutouts[i]);
-        drawPerson(ctx, person, x, y, FRAME_W, FRAME_H, "center");
-      } catch {
-        // image failed
-      }
+      try { const p = await loadImage(partnerCutouts[i]); drawPerson(ctx, p, x, y, cfg.frameW, cfg.frameH, "left"); } catch {}
+      try { const s = await loadImage(cutouts[i]); drawPerson(ctx, s, x, y, cfg.frameW, cfg.frameH, "right"); } catch {}
+    } else if (cutouts[i]) {
+      try { const p = await loadImage(cutouts[i]); drawPerson(ctx, p, x, y, cfg.frameW, cfg.frameH, "center"); } catch {}
     }
 
     ctx.restore();
 
-    // thin border
+    // frame border
     ctx.save();
-    roundRect(ctx, x, y, FRAME_W, FRAME_H, CORNER_R);
+    roundRect(ctx, x, y, cfg.frameW, cfg.frameH, CORNER_R);
     ctx.strokeStyle = "rgba(44, 44, 42, 0.08)";
     ctx.lineWidth = 0.5;
     ctx.stroke();
     ctx.restore();
   }
 
-  // apply LUT
+  // ---- LUT (pure Canvas 2D — works everywhere) ----
   if (lut !== "none") {
-    try {
-      const lutData = getLutByPreset(lut);
-      const renderer = createLutRenderer(STRIP_W, STRIP_H);
-      const graded = renderer.apply(canvas, lutData, 0.85);
-      ctx.putImageData(graded, 0, 0);
-      renderer.dispose();
-    } catch (e) {
-      console.error("[duet] LUT failed:", e);
-    }
+    const lutData = getLutByPreset(lut);
+    applyLut(ctx, STRIP_W, STRIP_H, lutData, 0.85);
   }
 
-  // grain + vignette on photo area
-  if (grain) applyGrain(ctx, canvas.width, STRIP_H, 0.04);
-  if (vignette) applyVignette(ctx, canvas.width, STRIP_H, 0.2);
+  // grain + vignette
+  if (grain) applyGrain(ctx, STRIP_W, STRIP_H, 0.04);
+  if (vignette) applyVignette(ctx, STRIP_W, STRIP_H, 0.2);
 
-  // clean the stamp area
+  // clean stamp area
   ctx.fillStyle = "#FDFCF9";
-  ctx.fillRect(0, STRIP_H, canvas.width, totalH - STRIP_H);
+  ctx.fillRect(0, STRIP_H, canvas.width, stampH);
 
-  // date stamp
+  // custom label (large, serif)
+  if (label) {
+    ctx.fillStyle = "#2C2C2A";
+    ctx.font = "italic 18px Georgia, 'Times New Roman', serif";
+    ctx.textAlign = "center";
+    ctx.fillText(label, canvas.width / 2, STRIP_H + 30, STRIP_W - PAD * 2);
+  }
+
+  // date + brand stamp
   ctx.fillStyle = "#8A8780";
-  ctx.font = "italic 13px Georgia, 'Times New Roman', serif";
+  ctx.font = "italic 11px Georgia, 'Times New Roman', serif";
   ctx.textAlign = "center";
-  const stampText = [title || "Duet", date || formatDate()].filter(Boolean).join("  ·  ");
-  ctx.fillText(stampText, canvas.width / 2, STRIP_H + 30);
+  const stampY = label ? STRIP_H + 52 : STRIP_H + 28;
+  ctx.fillText(`Duet  ·  ${date || formatDate()}`, canvas.width / 2, stampY);
 
   // outer border
   ctx.strokeStyle = "rgba(44, 44, 42, 0.06)";
@@ -189,41 +203,9 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   return canvas.toDataURL("image/png");
 }
 
-// draw a person cutout into a frame at left/right/center position
-function drawPerson(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  fx: number,
-  fy: number,
-  fw: number,
-  fh: number,
-  position: "left" | "right" | "center",
-) {
-  // scale to fill frame height, maintain aspect ratio
-  const scale = fh / img.height;
-  const cw = img.width * scale;
-  const ch = img.height * scale;
-
-  let cx: number;
-  if (position === "center") {
-    cx = fx + (fw - cw) / 2;
-  } else if (position === "left") {
-    // shift left person slightly left of center
-    cx = fx + fw * 0.5 - cw * 0.75;
-  } else {
-    // shift right person slightly right of center
-    cx = fx + fw * 0.5 - cw * 0.25;
-  }
-
-  ctx.drawImage(img, cx, fy + (fh - ch), cw, ch);
-}
-
 function formatDate(): string {
   const d = new Date();
-  const months = [
-    "jan", "feb", "mar", "apr", "may", "jun",
-    "jul", "aug", "sep", "oct", "nov", "dec",
-  ];
+  const months = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 

@@ -79,6 +79,16 @@ const translations = {
     zh: "倒计时",
     ko: "카운트다운",
   },
+  "booth.labelPlaceholder": {
+    en: "add a caption...",
+    zh: "写点什么...",
+    ko: "캡션을 입력하세요...",
+  },
+  "booth.layout": {
+    en: "layout",
+    zh: "布局",
+    ko: "레이아웃",
+  },
 
   // result
   "result.retake": {
