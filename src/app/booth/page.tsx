@@ -41,15 +41,19 @@ export default function BoothPage() {
   const [stripUrl, setStripUrl] = useState<string | null>(null);
   const [lastCapture, setLastCapture] = useState<string | null>(null);
 
-  // all captured raw photos
-  const photosRef = useRef<string[]>([]);
-  // selected photos for final strip (if taking more than needed)
-  const selectedRef = useRef<string[]>([]);
-
   // refs for settings (avoid stale closures)
   const lutRef = useRef(lut); lutRef.current = lut;
   const layoutRef = useRef(frameLayout); layoutRef.current = frameLayout;
   const labelRef = useRef(customLabel); labelRef.current = customLabel;
+
+  // capture buffers — filtered for fast composite, raw for re-grading
+  const filteredRef = useRef<string[]>([]);
+  const rawRef = useRef<string[]>([]);
+  const captureLutRef = useRef<LutPreset>("warm-film");
+
+  // selected photos for final strip
+  const filteredSelectedRef = useRef<string[]>([]);
+  const rawSelectedRef = useRef<string[]>([]);
 
   useEffect(() => {
     start("user");
@@ -57,51 +61,55 @@ export default function BoothPage() {
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  const buildStrip = useCallback(
-    async (photos: string[]) => {
-      return generateStrip({
-        photos,
-        layout: layoutRef.current,
-        lut: lutRef.current,
-        grain: true,
-        vignette: true,
-        label: labelRef.current || undefined,
-      });
-    },
-    [],
-  );
+  // build strip using filtered photos when lut hasn't changed (fast path)
+  // or raw photos + new lut when user re-graded
+  const buildStrip = useCallback(async () => {
+    const useFiltered = lutRef.current === captureLutRef.current;
+    const photos = useFiltered ? filteredSelectedRef.current : rawSelectedRef.current;
+    return generateStrip({
+      photos,
+      layout: layoutRef.current,
+      lut: useFiltered ? "none" : lutRef.current,
+      grain: true,
+      vignette: true,
+      label: labelRef.current || undefined,
+    });
+  }, []);
 
   const shoot = useCallback(async () => {
     if (!videoRef.current || !ready) return;
 
     setPhase("shooting");
-    photosRef.current = [];
+    filteredRef.current = [];
+    rawRef.current = [];
+    captureLutRef.current = lutRef.current;
     setShotCount(0);
     setLastCapture(null);
 
     for (let i = 0; i < totalShots; i++) {
-      // countdown
       await runCountdown(countdownSec);
 
-      // flash + capture
       setFlash(true);
-      const frame = captureFrame(videoRef.current);
-      photosRef.current.push(frame);
+      const { raw, filtered } = captureFrame(
+        videoRef.current,
+        1080,
+        1440,
+        LUT_CSS_FILTERS[lutRef.current],
+      );
+      filteredRef.current.push(filtered);
+      rawRef.current.push(raw);
       setShotCount(i + 1);
-      setLastCapture(frame);
+      setLastCapture(filtered);
 
-      // brief flash
       await sleep(100);
       setFlash(false);
 
-      // pause between shots (except after last)
       if (i < totalShots - 1) {
         await sleep(BETWEEN_SHOT_DELAY);
         setLastCapture(null);
       }
     }
 
-    // go to review or straight to composite
     stop();
     setPhase("reviewing");
   }, [ready, videoRef, runCountdown, totalShots, countdownSec, stop]);
@@ -119,24 +127,26 @@ export default function BoothPage() {
   }, [neededCount]);
 
   const confirmSelection = useCallback(async () => {
-    const picks = selectedIndices.length > 0
-      ? selectedIndices.map((i) => photosRef.current[i])
-      : photosRef.current.slice(0, neededCount);
+    const indices = selectedIndices.length > 0
+      ? selectedIndices
+      : Array.from({ length: neededCount }, (_, i) => i);
 
-    selectedRef.current = picks;
+    filteredSelectedRef.current = indices.map((i) => filteredRef.current[i]);
+    rawSelectedRef.current = indices.map((i) => rawRef.current[i]);
     setPhase("processing");
 
-    const strip = await buildStrip(picks);
+    const strip = await buildStrip();
     setStripUrl(strip);
     setPhase("done");
   }, [selectedIndices, neededCount, buildStrip]);
 
   // auto-confirm if exact count taken
   useEffect(() => {
-    if (phase === "reviewing" && photosRef.current.length <= neededCount) {
-      selectedRef.current = photosRef.current.slice(0, neededCount);
+    if (phase === "reviewing" && filteredRef.current.length <= neededCount) {
+      filteredSelectedRef.current = filteredRef.current.slice(0, neededCount);
+      rawSelectedRef.current = rawRef.current.slice(0, neededCount);
       setPhase("processing");
-      buildStrip(selectedRef.current).then((strip) => {
+      buildStrip().then((strip) => {
         setStripUrl(strip);
         setPhase("done");
       });
@@ -144,9 +154,9 @@ export default function BoothPage() {
   }, [phase, neededCount, buildStrip]);
 
   const regenerate = useCallback(async () => {
-    if (selectedRef.current.length === 0) return;
+    if (filteredSelectedRef.current.length === 0) return;
     setPhase("processing");
-    const strip = await buildStrip(selectedRef.current);
+    const strip = await buildStrip();
     setStripUrl(strip);
     setPhase("done");
   }, [buildStrip]);
@@ -155,7 +165,7 @@ export default function BoothPage() {
     (preset: LutPreset) => {
       setLut(preset);
       lutRef.current = preset;
-      if (selectedRef.current.length > 0) regenerate();
+      if (filteredSelectedRef.current.length > 0) regenerate();
     },
     [regenerate],
   );
@@ -164,18 +174,20 @@ export default function BoothPage() {
     (l: FrameLayout) => {
       setFrameLayout(l);
       layoutRef.current = l;
-      if (selectedRef.current.length > 0) regenerate();
+      if (filteredSelectedRef.current.length > 0) regenerate();
     },
     [regenerate],
   );
 
   const handleLabelBlur = useCallback(() => {
-    if (selectedRef.current.length > 0) regenerate();
+    if (filteredSelectedRef.current.length > 0) regenerate();
   }, [regenerate]);
 
   const retake = useCallback(() => {
-    photosRef.current = [];
-    selectedRef.current = [];
+    filteredRef.current = [];
+    rawRef.current = [];
+    filteredSelectedRef.current = [];
+    rawSelectedRef.current = [];
     setShotCount(0);
     setStripUrl(null);
     setLastCapture(null);
@@ -328,7 +340,7 @@ export default function BoothPage() {
           )}
 
           {/* ---- REVIEW/SELECT PHASE ---- */}
-          {phase === "reviewing" && photosRef.current.length > neededCount && (
+          {phase === "reviewing" && filteredRef.current.length > neededCount && (
             <motion.div
               key="review"
               initial={{ opacity: 0 }}
@@ -341,7 +353,7 @@ export default function BoothPage() {
               </p>
 
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
-                {photosRef.current.map((src, i) => {
+                {filteredRef.current.map((src, i) => {
                   const selIdx = selectedIndices.indexOf(i);
                   const isSelected = selIdx !== -1;
                   return (

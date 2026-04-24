@@ -104,10 +104,10 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
     for (let i = 0; i < total; i++) {
       await runCountdown(countdownSec);
       setFlash(true);
-      const frame = captureFrame(videoRef.current);
-      photosRef.current.push(frame);
+      const { filtered } = captureFrame(videoRef.current, 1080, 1440, LUT_CSS_FILTERS[lut]);
+      photosRef.current.push(filtered);
       setShotCount(i + 1);
-      setLastCapture(frame);
+      setLastCapture(filtered);
       await sleep(100);
       setFlash(false);
       if (i < total - 1) { await sleep(BETWEEN_SHOT_DELAY); setLastCapture(null); }
@@ -154,7 +154,7 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
       const strip = await generateStrip({
         photos: allPhotos,
         layout: room.layout as FrameLayout,
-        lut,
+        lut: "none",
       });
       setStripUrl(strip);
       setPhase("done");

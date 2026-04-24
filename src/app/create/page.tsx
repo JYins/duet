@@ -141,10 +141,10 @@ export default function CreatePage() {
     for (let i = 0; i < totalToTake; i++) {
       await runCountdown(countdownSec);
       setFlash(true);
-      const frame = captureFrame(videoRef.current);
-      photosRef.current.push(frame);
+      const { filtered } = captureFrame(videoRef.current, 1080, 1440, LUT_CSS_FILTERS[settings?.lut || "warm-film"]);
+      photosRef.current.push(filtered);
       setShotCount(i + 1);
-      setLastCapture(frame);
+      setLastCapture(filtered);
       await sleep(100);
       setFlash(false);
       if (i < totalToTake - 1) {
@@ -211,7 +211,7 @@ export default function CreatePage() {
       const strip = await generateStrip({
         photos: allPhotos,
         layout: settings.layout,
-        lut: settings.lut,
+        lut: "none",
         label: undefined,
       });
       setStripUrl(strip);

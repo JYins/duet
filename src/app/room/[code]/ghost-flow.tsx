@@ -112,7 +112,7 @@ export default function GhostFlow({ room, sessionId }: GhostFlowProps) {
             person2Cutouts: guestCutoutUrls,
             backgroundId: room.background_id,
             layout: room.layout as FrameLayout,
-            lut,
+            lut: "none",
           });
           setStripUrl(strip);
           setPhase("done");
@@ -144,10 +144,10 @@ export default function GhostFlow({ room, sessionId }: GhostFlowProps) {
     for (let i = 0; i < SHOTS_PER_PERSON; i++) {
       await runCountdown(5);
       setFlash(true);
-      const frame = captureFrame(videoRef.current);
-      photosRef.current.push(frame);
+      const { filtered } = captureFrame(videoRef.current, 1080, 1440, LUT_CSS_FILTERS[lut]);
+      photosRef.current.push(filtered);
       setShotCount(i + 1);
-      setLastCapture(frame);
+      setLastCapture(filtered);
       await sleep(100);
       setFlash(false);
       if (i < SHOTS_PER_PERSON - 1) {
@@ -205,7 +205,7 @@ export default function GhostFlow({ room, sessionId }: GhostFlowProps) {
           person2Cutouts: cutoutsRef.current,
           backgroundId: room.background_id,
           layout: room.layout as FrameLayout,
-          lut,
+          lut: "none",
         });
         setStripUrl(strip);
         setPhase("done");

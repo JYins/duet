@@ -2,15 +2,8 @@
 
 import { motion } from "framer-motion";
 import { type LutPreset } from "@/lib/lut";
+import { LUT_PRESETS } from "@/lib/lut";
 import { useLocale } from "@/hooks/use-locale";
-import type { TranslationKey } from "@/lib/i18n";
-
-const PRESETS: { id: LutPreset; labelKey: TranslationKey }[] = [
-  { id: "none", labelKey: "lut.natural" },
-  { id: "warm-film", labelKey: "lut.portra" },
-  { id: "cool-desat", labelKey: "lut.cool" },
-  { id: "bw", labelKey: "lut.mono" },
-];
 
 interface LutPickerProps {
   value: LutPreset;
@@ -21,9 +14,10 @@ export default function LutPicker({ value, onChange }: LutPickerProps) {
   const { t } = useLocale();
 
   return (
-    <div className="flex items-center gap-2">
-      {PRESETS.map(({ id, labelKey }) => {
+    <div className="flex flex-wrap items-center justify-center gap-2">
+      {LUT_PRESETS.map(({ id, label }) => {
         const active = id === value;
+        const display = id === "none" ? t("lut.natural") : label;
         return (
           <motion.button
             key={id}
@@ -35,7 +29,7 @@ export default function LutPicker({ value, onChange }: LutPickerProps) {
                 : "border border-[#DDD9D0] text-[#8A8780] hover:border-[#D4A574] hover:text-[#2C2C2A]"
             }`}
           >
-            {t(labelKey)}
+            {display}
           </motion.button>
         );
       })}
