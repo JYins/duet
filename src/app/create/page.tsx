@@ -16,6 +16,7 @@ import {
   collectSubmittedPhotos,
   createRoom,
   getParticipants,
+  getRoomErrorMessage,
   getRoomUrl,
   joinRoom,
   markParticipantSubmitted,
@@ -182,7 +183,7 @@ export default function CreatePage() {
       setParticipants([host]);
       setPhase("sharing");
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : t("error.composite"));
+      setErrorMsg(getRoomErrorMessage(err, t));
     }
   }, [mode, router, sessionId, t]);
 

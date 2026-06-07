@@ -15,6 +15,7 @@ import { applyMask } from "@/lib/mask";
 import {
   collectGhostCutouts,
   getParticipants,
+  getRoomErrorMessage,
   getRoomUrl,
   joinRoom,
   markParticipantSubmitted,
@@ -175,7 +176,7 @@ export default function GhostFlow({ room, sessionId }: GhostFlowProps) {
       await updateParticipant(me.id, { status: "shooting" });
       setPhase("shooting");
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : t("room.notFound"));
+      setErrorMsg(getRoomErrorMessage(err, t));
     }
   }, [displayName, hostParticipant, room.id, seg, sessionId, start, t]);
 

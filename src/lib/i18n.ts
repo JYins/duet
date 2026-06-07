@@ -463,6 +463,11 @@ const translations = {
     zh: "房间已满",
     ko: "방이 가득 찼어요",
   },
+  "join.hostExists": {
+    en: "The first photographer is already in this room. Join as the second person.",
+    zh: "第一位拍摄者已经在房间里了。请作为第二位加入。",
+    ko: "첫 번째 촬영자가 이미 들어와 있어요. 두 번째 사람으로 참여해주세요.",
+  },
 
   "ghost.segmenting": {
     en: "Cutting portraits...",
@@ -540,6 +545,16 @@ const translations = {
     en: "Strip is ready. Cloud sync is not available yet, so save it before leaving.",
     zh: "相纸已经生成。云端同步暂不可用，请离开前先保存。",
     ko: "스트립이 완성되었어요. 클라우드 동기화를 사용할 수 없으니 나가기 전에 저장해주세요.",
+  },
+  "error.backendMigration": {
+    en: "The booth backend is still updating. Please run the latest Supabase migration, then try again.",
+    zh: "拍照亭后端还在更新。请先执行最新 Supabase migration，然后再试一次。",
+    ko: "포토부스 백엔드가 아직 업데이트 중이에요. 최신 Supabase migration을 실행한 뒤 다시 시도해주세요.",
+  },
+  "error.joinFailed": {
+    en: "Could not join the room. Please try again.",
+    zh: "暂时无法加入房间，请再试一次。",
+    ko: "방에 참여할 수 없어요. 다시 시도해주세요.",
   },
   "error.composite": {
     en: "Could not make the strip.",

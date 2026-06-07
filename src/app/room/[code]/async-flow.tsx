@@ -13,6 +13,7 @@ import { LUT_CSS_FILTERS, type LutPreset } from "@/lib/lut";
 import {
   collectSubmittedPhotos,
   getParticipants,
+  getRoomErrorMessage,
   getRoomUrl,
   joinRoom,
   markParticipantSubmitted,
@@ -143,7 +144,7 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
       setMyParticipant(me);
       setPhase(me.status === "submitted" ? "submitted" : "waiting");
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : t("room.notFound"));
+      setErrorMsg(getRoomErrorMessage(err, t));
     }
   }, [displayName, room.id, sessionId, t]);
 

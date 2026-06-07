@@ -4,6 +4,7 @@ import { getSupabase } from "./supabase";
 import type { Room, RoomParticipant, RoomMode } from "@/types/room";
 import type { FrameLayout } from "./composite";
 import { getLayout } from "./composite";
+import type { TranslationKey } from "./i18n";
 
 function generateShortCode(): string {
   const chars = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -343,9 +344,22 @@ function getDataUrlContentType(dataUrl: string, fallback: string): string {
 }
 
 function normalizeJoinError(message: string): string {
-  if (/claim_participant_slot_v1|schema cache|function/i.test(message)) return "backend migration is missing";
-  if (/room is full/i.test(message)) return "room is full";
-  if (/room not found/i.test(message)) return "room not found";
-  if (/idx_room_participants_one_host|duplicate key/i.test(message)) return "host already joined";
-  return `failed to join: ${message}`;
+  if (/claim_participant_slot_v1|schema cache|function/i.test(message)) return "backend-migration-missing";
+  if (/room is full/i.test(message)) return "room-full";
+  if (/room not found/i.test(message)) return "room-not-found";
+  if (/idx_room_participants_one_host|duplicate key/i.test(message)) return "host-already-joined";
+  return `join-failed:${message}`;
+}
+
+export function getRoomErrorMessage(
+  err: unknown,
+  translate: (key: TranslationKey) => string,
+): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message === "backend-migration-missing") return translate("error.backendMigration");
+  if (message === "room-full") return translate("join.full");
+  if (message === "room-not-found") return translate("room.notFound");
+  if (message === "host-already-joined") return translate("join.hostExists");
+  if (message.startsWith("join-failed:")) return translate("error.joinFailed");
+  return message || translate("error.joinFailed");
 }
