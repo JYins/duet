@@ -6,14 +6,13 @@ export function applyMask(
   mask: ImageData,
   featherRadius = 3,
 ): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       const w = mask.width;
       const h = mask.height;
 
-      // feather the mask alpha channel for softer edges
-      const feathered = featherRadius > 0 ? featherMask(mask, featherRadius) : mask;
+      const polished = polishMask(mask, featherRadius);
 
       const canvas = document.createElement("canvas");
       canvas.width = w;
@@ -25,14 +24,37 @@ export function applyMask(
 
       // apply feathered mask alpha
       for (let i = 0; i < w * h; i++) {
-        srcData.data[i * 4 + 3] = feathered.data[i * 4 + 3];
+        srcData.data[i * 4 + 3] = polished.data[i * 4 + 3];
       }
 
       ctx.putImageData(srcData, 0, 0);
       resolve(canvas.toDataURL("image/png"));
     };
+    img.onerror = () => reject(new Error("failed to load source image for mask"));
     img.src = source;
   });
+}
+
+function polishMask(mask: ImageData, featherRadius: number): ImageData {
+  const tightened = tightenMask(mask);
+  return featherRadius > 0 ? featherMask(tightened, featherRadius) : tightened;
+}
+
+function tightenMask(mask: ImageData): ImageData {
+  const w = mask.width;
+  const h = mask.height;
+  const out = new ImageData(w, h);
+
+  for (let i = 0; i < w * h; i++) {
+    const alpha = mask.data[i * 4 + 3];
+    const cleaned = alpha < 42 ? 0 : alpha > 176 ? 255 : Math.round((alpha - 42) * (255 / 134));
+    out.data[i * 4] = 255;
+    out.data[i * 4 + 1] = 255;
+    out.data[i * 4 + 2] = 255;
+    out.data[i * 4 + 3] = cleaned;
+  }
+
+  return out;
 }
 
 // gaussian-approximate edge feathering via repeated box blur on alpha channel

@@ -93,7 +93,7 @@ async function createMediaPipeEngine(): Promise<SegmentationEngine> {
 
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}`)) {
+    if (document.querySelector(`script[src="${src}"]`)) {
       resolve();
       return;
     }
