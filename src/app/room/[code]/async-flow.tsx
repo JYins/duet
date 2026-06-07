@@ -170,13 +170,10 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
       for (let i = 0; i < totalToTake; i++) {
         await runCountdown(5);
         setFlash(true);
-        const { raw, filtered } = captureFrame(
-          videoRef.current,
-          1080,
-          1440,
-          LUT_CSS_FILTERS[lut],
-          facing === "user",
-        );
+        const { raw, filtered } = captureFrame(videoRef.current, {
+          cssFilter: LUT_CSS_FILTERS[lut],
+          mirrored: facing === "user",
+        });
         const shot = { index: i, rawUrl: raw, filteredUrl: filtered, selected: i < neededCount };
         captured.push(shot);
         setShots([...captured]);

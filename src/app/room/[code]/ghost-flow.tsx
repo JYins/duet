@@ -196,13 +196,10 @@ export default function GhostFlow({ room, sessionId }: GhostFlowProps) {
       for (let i = 0; i < requiredFrames; i++) {
         await runCountdown(5);
         setFlash(true);
-        const { raw, filtered } = captureFrame(
-          videoRef.current,
-          1080,
-          1440,
-          LUT_CSS_FILTERS[lut],
-          facing === "user",
-        );
+        const { raw, filtered } = captureFrame(videoRef.current, {
+          cssFilter: LUT_CSS_FILTERS[lut],
+          mirrored: facing === "user",
+        });
         captured.push({ index: i, rawUrl: raw, filteredUrl: filtered, selected: true });
         setShots([...captured]);
         setShotCount(i + 1);

@@ -2,12 +2,15 @@
 
 export type FacingMode = "user" | "environment";
 
+export const CAPTURE_WIDTH = 900;
+export const CAPTURE_HEIGHT = 1200;
+
 export async function getStream(facing: FacingMode = "user") {
   return navigator.mediaDevices.getUserMedia({
     video: {
       facingMode: facing,
-      width: { ideal: 1080 },
-      height: { ideal: 1440 },
+      width: { ideal: CAPTURE_WIDTH },
+      height: { ideal: CAPTURE_HEIGHT },
     },
     audio: false,
   });
@@ -22,22 +25,37 @@ export interface CapturedFrame {
   filtered: string; // with CSS filter baked in, for fast composite
 }
 
+export interface CaptureFrameOptions {
+  width?: number;
+  height?: number;
+  cssFilter?: string;
+  mirrored?: boolean;
+}
+
 const PHOTO_MIME = "image/jpeg";
-const PHOTO_QUALITY = 0.92;
+const PHOTO_QUALITY = 0.9;
 
 // Capture a single frame from a video element.
 // Plain camera frames are JPEG to keep mobile uploads reasonable; transparent
 // cutouts and final strips are still generated as PNG in their own modules.
 export function captureFrame(
   video: HTMLVideoElement,
-  width = 1080,
-  height = 1440,
-  cssFilter?: string,
-  mirrored = true,
+  options: CaptureFrameOptions = {},
 ): CapturedFrame {
+  const {
+    width = CAPTURE_WIDTH,
+    height = CAPTURE_HEIGHT,
+    cssFilter,
+    mirrored = true,
+  } = options;
+
   // compute crop region to match target 3:4 aspect ratio
   const vw = video.videoWidth;
   const vh = video.videoHeight;
+  if (!vw || !vh) {
+    throw new Error("camera frame is not ready");
+  }
+
   const targetRatio = width / height;
   const videoRatio = vw / vh;
 
