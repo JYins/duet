@@ -120,11 +120,23 @@ export default function BoothPage() {
 
   const toggleSelect = useCallback((idx: number) => {
     setSelectedIndices((prev) => {
-      if (prev.includes(idx)) return prev.filter((item) => item !== idx);
-      if (prev.length >= neededCount) return prev;
-      return [...prev, idx];
+      const unique = prev.filter((item, i) => prev.indexOf(item) === i);
+      if (unique.includes(idx)) return unique.filter((item) => item !== idx);
+      if (unique.length >= neededCount) return unique;
+      return [...unique, idx];
     });
   }, [neededCount]);
+
+  const reorderSelection = useCallback((from: number, to: number) => {
+    setSelectedIndices((prev) => {
+      if (to < 0 || to >= prev.length) return prev;
+      const next = prev.filter((item, i) => prev.indexOf(item) === i);
+      const [item] = next.splice(from, 1);
+      if (item === undefined) return prev;
+      next.splice(to, 0, item);
+      return next;
+    });
+  }, []);
 
   const confirmSelection = useCallback(async () => {
     if (selectedShots.length < neededCount) return;
@@ -285,7 +297,9 @@ export default function BoothPage() {
               shots={shots}
               selectedIndices={selectedIndices}
               onToggle={toggleSelect}
+              onReorder={reorderSelection}
               neededCount={neededCount}
+              slotStart={0}
             />
             <div className="space-y-3">
               <LayoutPicker value={frameLayout} onChange={handleLayoutChange} />

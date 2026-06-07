@@ -110,14 +110,14 @@ if (participantsBase.error) {
 const rooms = roomsBaseOk
   ? await supabase
     .from("rooms")
-    .select("id,result_path,completed_at")
+    .select("id,result_path,completed_at,label,paper_style")
     .limit(1)
   : { error: roomBase.error };
 
 if (rooms.error) {
-  fail("rooms v3 columns", errorDetail(rooms.error));
+  fail("rooms v4 columns", errorDetail(rooms.error));
 } else {
-  print("ok", "rooms v3 columns", "result_path and completed_at are readable");
+  print("ok", "rooms v4 columns", "result_path, completed_at, label, and paper_style are readable");
 }
 
 const rpc = await supabase.rpc("claim_participant_slot_v1", {
@@ -147,7 +147,7 @@ if (results.error) {
 
 if (process.exitCode === 1) {
   if (roomsBaseOk && participantsBaseOk) {
-    console.log("\nSupabase backend has the base schema but is missing v3. Run supabase-migration-v3.sql in the Supabase SQL Editor.");
+    console.log("\nSupabase backend has the base schema but is missing v4. Run supabase-migration-v3.sql and supabase-migration-v4.sql, or supabase-duet-full.sql for a fresh project.");
   } else {
     console.log("\nSupabase backend is not fully migrated. Run supabase-duet-full.sql in the Supabase SQL Editor.");
   }

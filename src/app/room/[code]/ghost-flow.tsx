@@ -13,6 +13,7 @@ import { generateGhostStrip } from "@/lib/ghost-composite";
 import { LUT_CSS_FILTERS, type LutPreset } from "@/lib/lut";
 import { applyMask } from "@/lib/mask";
 import {
+  buildParticipantLabel,
   collectGhostCutouts,
   getParticipants,
   getRoomErrorMessage,
@@ -20,6 +21,7 @@ import {
   joinRoom,
   markParticipantSubmitted,
   markRoomComplete,
+  resetParticipantSubmission,
   sortParticipants,
   subscribeToRoom,
   subscribeToParticipants,
@@ -113,6 +115,8 @@ export default function GhostFlow({ room, sessionId }: GhostFlowProps) {
         backgroundId: room.background_id,
         layout: room.layout as FrameLayout,
         lut,
+        label: buildParticipantLabel(roomParticipants, room.label),
+        paperStyle: room.paper_style || "porcelain",
       });
       let finalUrl = strip;
       try {
@@ -131,7 +135,7 @@ export default function GhostFlow({ room, sessionId }: GhostFlowProps) {
       setPhase(isHost ? "sharing" : "preview");
       compositingRef.current = false;
     }
-  }, [isHost, lut, requiredFrames, room.background_id, room.id, room.layout, t]);
+  }, [isHost, lut, requiredFrames, room.background_id, room.id, room.label, room.layout, room.paper_style, t]);
 
   useEffect(() => {
     return subscribeToRoom(room.id, (nextRoom) => {
@@ -288,14 +292,27 @@ export default function GhostFlow({ room, sessionId }: GhostFlowProps) {
 
   const retake = useCallback(async () => {
     if (!myParticipant) return;
+    compositingRef.current = false;
+    uploadRef.current = false;
+    setErrorMsg(null);
     setShots([]);
     setCutouts([]);
+    fallbackIndicesRef.current = new Set();
     setShotCount(0);
     setLastCapture(null);
-    await updateParticipant(myParticipant.id, { status: "shooting" });
-    start("user");
-    setPhase("shooting");
-  }, [myParticipant, start]);
+    try {
+      await resetParticipantSubmission(myParticipant.id);
+      const resetMe: RoomParticipant = { ...myParticipant, status: "shooting", photo_paths: [] };
+      setMyParticipant(resetMe);
+      setParticipants((prev) => sortParticipants(prev.map((participant) => (
+        participant.id === resetMe.id ? resetMe : participant
+      ))));
+      start("user");
+      setPhase("shooting");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : t("error.capture"));
+    }
+  }, [myParticipant, start, t]);
 
   const canJoin = displayName.trim().length > 0 || Boolean(myParticipant);
   const originals = shots.map((shot) => shot.filteredUrl);
@@ -416,6 +433,15 @@ export default function GhostFlow({ room, sessionId }: GhostFlowProps) {
             <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#D4A574]" />
             <p className="text-[11px] text-[#8A8780]">{t("create.waiting")}</p>
           </div>
+          <button
+            type="button"
+            onClick={retake}
+            disabled={Boolean(stripUrl)}
+            className="flex items-center gap-2 rounded-full border border-[#2C2C2A]/10 bg-[#FDFCF9] px-6 py-2.5 text-xs tracking-wide text-[#2C2C2A] shadow-sm disabled:opacity-30"
+          >
+            <RefreshCw size={14} strokeWidth={1.5} />
+            {t("result.retake")}
+          </button>
         </motion.div>
       )}
 

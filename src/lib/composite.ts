@@ -1,5 +1,6 @@
 import { applyGrainToRect, applyPaperTexture, applyStudioFlashToRect, applyVignetteToRect } from "./effects";
 import { applyLutToRect, getLutByPreset, type LutPreset } from "./lut";
+import { getPaperStyle, type PaperStyleId } from "./paper-styles";
 
 export type FrameLayout = "1x4" | "2x2" | "1x3" | "2x3" | "2x4" | "3x3";
 
@@ -200,19 +201,23 @@ export function drawStripStamp(
   label?: string,
   date?: string,
 ) {
+  const lightInk = isDarkColor(paperColor);
+  const ink = lightInk ? "#F8F2E8" : INK;
+  const mutedInk = lightInk ? "rgba(248,242,232,0.62)" : MUTED_INK;
+
   ctx.fillStyle = paperColor;
   ctx.fillRect(0, y, w, stampH);
 
-  ctx.fillStyle = INK;
+  ctx.fillStyle = ink;
   ctx.textAlign = "center";
   ctx.font = "600 16px Georgia, 'Times New Roman', serif";
   ctx.fillText(label?.trim() || "DUET STUDIO", w / 2, y + 25, w - STRIP_PAD * 2);
 
-  ctx.fillStyle = MUTED_INK;
+  ctx.fillStyle = mutedInk;
   ctx.font = "10px Inter, Arial, sans-serif";
   ctx.fillText(`${formatDate(date)} / TWO-PERSON PHOTOBOOTH`, w / 2, y + 45, w - STRIP_PAD * 2);
 
-  ctx.fillStyle = "rgba(40,37,34,0.38)";
+  ctx.fillStyle = lightInk ? "rgba(248,242,232,0.38)" : "rgba(40,37,34,0.38)";
   ctx.font = "8px Inter, Arial, sans-serif";
   ctx.fillText("FRAMED IN DUET", w / 2, y + stampH - 14, w - STRIP_PAD * 2);
 }
@@ -220,6 +225,7 @@ export function drawStripStamp(
 export interface CompositeOptions {
   photos: string[];
   stripColor?: string;
+  paperStyle?: PaperStyleId | string;
   layout?: FrameLayout;
   lut?: LutPreset;
   grain?: boolean;
@@ -231,7 +237,8 @@ export interface CompositeOptions {
 export async function generateStrip(opts: CompositeOptions): Promise<string> {
   const {
     photos,
-    stripColor = "#FBF7EF",
+    stripColor,
+    paperStyle,
     layout = "1x4",
     lut = "k-booth",
     grain = true,
@@ -241,6 +248,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   } = opts;
 
   const cfg = getLayout(layout);
+  const paperColor = stripColor || getPaperStyle(paperStyle).color;
   if (photos.length < cfg.count) {
     throw new Error(`not enough photos for ${layout}: expected ${cfg.count}, got ${photos.length}`);
   }
@@ -257,7 +265,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   canvas.height = totalH;
   const ctx = canvas.getContext("2d")!;
 
-  drawPaperBase(ctx, canvas.width, canvas.height, stripColor);
+  drawPaperBase(ctx, canvas.width, canvas.height, paperColor);
 
   for (let i = 0; i < cfg.count; i++) {
     const col = i % cfg.cols;
@@ -280,7 +288,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     drawFrameFinish(ctx, x, y, cfg.frameW, cfg.frameH);
   }
 
-  drawStripStamp(ctx, canvas.width, stripH, stampH, stripColor, label, date);
+  drawStripStamp(ctx, canvas.width, stripH, stampH, paperColor, label, date);
   applyPaperTexture(ctx, canvas.width, canvas.height, 0.012);
 
   ctx.strokeStyle = "rgba(40,37,34,0.10)";
@@ -296,6 +304,16 @@ function formatDate(input?: string): string {
   const d = new Date();
   const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+function isDarkColor(input: string): boolean {
+  const normalized = input.replace("#", "");
+  if (normalized.length !== 6) return false;
+  const value = Number.parseInt(normalized, 16);
+  const r = value >> 16;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return (r * 299 + g * 587 + b * 114) / 1000 < 128;
 }
 
 export async function downloadImage(src: string, filename = "duet-strip.png") {

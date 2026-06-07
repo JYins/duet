@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { AlertTriangle, Camera, Check, Clock } from "lucide-react";
+import { AlertTriangle, Camera, Check, Clock, RotateCcw } from "lucide-react";
 import { useLocale } from "@/hooks/use-locale";
 import type { ParticipantStatus, RoomParticipant } from "@/types/room";
 import ShareCard from "./share-card";
@@ -13,6 +13,7 @@ interface WaitingRoomProps {
   expectedCount: number;
   currentUserId: string;
   onStartShooting?: () => void;
+  onRetake?: () => void;
 }
 
 const STATUS_ICON = {
@@ -38,12 +39,14 @@ export default function WaitingRoom({
   expectedCount,
   currentUserId,
   onStartShooting,
+  onRetake,
 }: WaitingRoomProps) {
   const { t } = useLocale();
   const submittedCount = participants.filter((p) => p.status === "submitted").length;
   const allSubmitted = submittedCount >= expectedCount;
   const me = participants.find((p) => p.user_id === currentUserId);
   const canShoot = me && me.status === "joined";
+  const canRetake = !allSubmitted && me?.status === "submitted" && Boolean(onRetake);
 
   return (
     <motion.div
@@ -98,6 +101,15 @@ export default function WaitingRoom({
       <div className="flex items-center gap-2">
         {allSubmitted ? (
           <span className="text-xs tracking-wide text-[#6B8E6B]">{t("waiting.allSubmitted")}</span>
+        ) : canRetake && onRetake ? (
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={onRetake}
+            className="flex items-center gap-2 rounded-full border border-[#2C2C2A]/10 bg-[#FDFCF9] px-6 py-2.5 text-xs tracking-wide text-[#2C2C2A] shadow-sm"
+          >
+            <RotateCcw size={14} strokeWidth={1.5} />
+            {t("result.retake")}
+          </motion.button>
         ) : canShoot && onStartShooting ? (
           <motion.button
             whileTap={{ scale: 0.97 }}

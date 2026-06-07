@@ -11,6 +11,7 @@ import { captureFrame } from "@/lib/camera";
 import { generateStrip, type FrameLayout } from "@/lib/composite";
 import { LUT_CSS_FILTERS, type LutPreset } from "@/lib/lut";
 import {
+  buildParticipantLabel,
   collectSubmittedPhotos,
   getParticipants,
   getRoomErrorMessage,
@@ -18,6 +19,7 @@ import {
   joinRoom,
   markParticipantSubmitted,
   markRoomComplete,
+  resetParticipantSubmission,
   sortParticipants,
   subscribeToRoom,
   subscribeToParticipants,
@@ -93,6 +95,8 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
         lut,
         grain: true,
         vignette: true,
+        label: buildParticipantLabel(roomParticipants, room.label),
+        paperStyle: room.paper_style || "porcelain",
       });
       let finalUrl = strip;
       try {
@@ -111,7 +115,7 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
       setPhase("submitted");
       compositingRef.current = false;
     }
-  }, [lut, room.id, room.layout, room.participant_count, t]);
+  }, [lut, room.id, room.label, room.layout, room.paper_style, room.participant_count, t]);
 
   useEffect(() => {
     return subscribeToRoom(room.id, (nextRoom) => {
@@ -203,11 +207,23 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
 
   const toggleSelect = useCallback((idx: number) => {
     setSelectedIndices((prev) => {
-      if (prev.includes(idx)) return prev.filter((item) => item !== idx);
-      if (prev.length >= neededCount) return prev;
-      return [...prev, idx];
+      const unique = prev.filter((item, i) => prev.indexOf(item) === i);
+      if (unique.includes(idx)) return unique.filter((item) => item !== idx);
+      if (unique.length >= neededCount) return unique;
+      return [...unique, idx];
     });
   }, [neededCount]);
+
+  const reorderSelection = useCallback((from: number, to: number) => {
+    setSelectedIndices((prev) => {
+      if (to < 0 || to >= prev.length) return prev;
+      const next = prev.filter((item, i) => prev.indexOf(item) === i);
+      const [item] = next.splice(from, 1);
+      if (item === undefined) return prev;
+      next.splice(to, 0, item);
+      return next;
+    });
+  }, []);
 
   const submitPhotos = useCallback(async () => {
     if (!myParticipant || selectedIndices.length !== neededCount) return;
@@ -232,6 +248,28 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
       uploadRef.current = false;
     }
   }, [myParticipant, neededCount, room.id, selectedIndices, shots, t]);
+
+  const retakeSubmitted = useCallback(async () => {
+    if (!myParticipant || uploadRef.current || captureRef.current || resultRef.current) return;
+    compositingRef.current = false;
+    setErrorMsg(null);
+    setShots([]);
+    setSelectedIndices([]);
+    setShotCount(0);
+    setLastCapture(null);
+    try {
+      await resetParticipantSubmission(myParticipant.id);
+      const resetMe: RoomParticipant = { ...myParticipant, status: "shooting", photo_paths: [] };
+      setMyParticipant(resetMe);
+      setParticipants((prev) => sortParticipants(prev.map((participant) => (
+        participant.id === resetMe.id ? resetMe : participant
+      ))));
+      start("user");
+      setPhase("shooting");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : t("error.capture"));
+    }
+  }, [myParticipant, start, t]);
 
   return (
     <AnimatePresence mode="wait">
@@ -276,6 +314,7 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
             expectedCount={room.participant_count}
             currentUserId={sessionId}
             onStartShooting={phase === "waiting" && myParticipant?.status === "joined" ? startShooting : undefined}
+            onRetake={phase === "submitted" && !stripUrl ? retakeSubmitted : undefined}
           />
           {errorMsg && <p className="max-w-xs text-center text-xs text-[#C45B4A]">{errorMsg}</p>}
         </motion.div>
@@ -326,7 +365,14 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
             <p className="font-serif text-2xl italic text-[#2C2C2A]">{t("booth.selectPhotos")}</p>
             <p className="mt-1 text-xs text-[#8A8780]">{selectedIndices.length}/{neededCount}</p>
           </div>
-          <PhotoStripPreview shots={shots} selectedIndices={selectedIndices} onToggle={toggleSelect} neededCount={neededCount} />
+          <PhotoStripPreview
+            shots={shots}
+            selectedIndices={selectedIndices}
+            onToggle={toggleSelect}
+            onReorder={reorderSelection}
+            neededCount={neededCount}
+            slotStart={myParticipant?.slot_start || 0}
+          />
           <button
             type="button"
             onClick={submitPhotos}

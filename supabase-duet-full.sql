@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS public.rooms (
   layout TEXT DEFAULT '2x2',
   participant_count INT DEFAULT 2,
   background_id TEXT DEFAULT 'cream',
+  label TEXT,
+  paper_style TEXT DEFAULT 'porcelain',
   result_path TEXT,
   completed_at TIMESTAMPTZ
 );
@@ -25,6 +27,8 @@ ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT 'async';
 ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS layout TEXT DEFAULT '2x2';
 ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS participant_count INT DEFAULT 2;
 ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS background_id TEXT DEFAULT 'cream';
+ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS label TEXT;
+ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS paper_style TEXT DEFAULT 'porcelain';
 ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS result_path TEXT;
 ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS host_photo_path TEXT;
@@ -45,6 +49,14 @@ ALTER TABLE public.rooms ADD CONSTRAINT rooms_layout_check
 ALTER TABLE public.rooms DROP CONSTRAINT IF EXISTS rooms_participant_count_check;
 ALTER TABLE public.rooms ADD CONSTRAINT rooms_participant_count_check
   CHECK (participant_count BETWEEN 1 AND 4);
+
+UPDATE public.rooms
+SET paper_style = 'porcelain'
+WHERE paper_style IS NULL;
+
+ALTER TABLE public.rooms DROP CONSTRAINT IF EXISTS rooms_paper_style_check;
+ALTER TABLE public.rooms ADD CONSTRAINT rooms_paper_style_check
+  CHECK (paper_style IN ('porcelain', 'milk', 'blush', 'sage', 'sky', 'charcoal'));
 
 CREATE INDEX IF NOT EXISTS idx_rooms_short_code ON public.rooms(short_code);
 CREATE INDEX IF NOT EXISTS idx_rooms_status_expires ON public.rooms(status, expires_at);

@@ -1,6 +1,7 @@
 import { applyPaperTexture } from "./effects";
 import { type LutPreset } from "./lut";
 import { BACKGROUNDS } from "./backgrounds";
+import { getPaperStyle, type PaperStyleId } from "./paper-styles";
 import {
   drawCover,
   drawFrameFinish,
@@ -29,6 +30,7 @@ export interface GhostCompositeOptions {
   vignette?: boolean;
   label?: string;
   date?: string;
+  paperStyle?: PaperStyleId | string;
 }
 
 function drawBackground(
@@ -67,31 +69,6 @@ function drawContactShadow(
   ctx.beginPath();
   ctx.ellipse(x, y, w / 2, h / 2, 0, 0, Math.PI * 2);
   ctx.fill();
-}
-
-function getCoverGeometry(
-  img: HTMLImageElement,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-) {
-  const imgRatio = img.width / img.height;
-  const frameRatio = w / h;
-  let sx = 0;
-  let sy = 0;
-  let sw = img.width;
-  let sh = img.height;
-
-  if (imgRatio > frameRatio) {
-    sw = img.height * frameRatio;
-    sx = (img.width - sw) / 2;
-  } else {
-    sh = img.width / frameRatio;
-    sy = (img.height - sh) / 2;
-  }
-
-  return { sx, sy, sw, sh, dx: x, dy: y, dw: w, dh: h };
 }
 
 function getAlphaBounds(img: HTMLImageElement): { minX: number; minY: number; maxX: number; maxY: number } | null {
@@ -143,45 +120,52 @@ function imageHasTransparency(img: HTMLImageElement): boolean {
   return false;
 }
 
-function drawAlignedCutout(
+function drawPlacedCutout(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
   frameX: number,
   frameY: number,
   frameW: number,
   frameH: number,
+  side: "left" | "right",
 ) {
-  const geometry = getCoverGeometry(img, frameX, frameY, frameW, frameH);
   const bounds = getAlphaBounds(img);
-
-  if (bounds) {
-    const visibleW = (bounds.maxX - bounds.minX) * frameW;
-    const centerX = frameX + ((bounds.minX + bounds.maxX) / 2) * frameW;
-    const footY = frameY + bounds.maxY * frameH;
-    drawContactShadow(
-      ctx,
-      centerX,
-      Math.min(frameY + frameH * 0.965, footY + frameH * 0.018),
-      Math.max(frameW * 0.20, Math.min(frameW * 0.48, visibleW * 0.84)),
-      frameH * 0.075,
-    );
+  if (!bounds) {
+    drawFallbackPortrait(ctx, img, frameX, frameY, frameW, frameH, side);
+    return;
   }
+
+  const padX = 0.08;
+  const padTop = 0.06;
+  const padBottom = 0.02;
+  const sx = Math.max(0, (bounds.minX - padX) * img.width);
+  const sy = Math.max(0, (bounds.minY - padTop) * img.height);
+  const ex = Math.min(img.width, (bounds.maxX + padX) * img.width);
+  const ey = Math.min(img.height, (bounds.maxY + padBottom) * img.height);
+  const sw = Math.max(1, ex - sx);
+  const sh = Math.max(1, ey - sy);
+
+  const sourceRatio = sw / sh;
+  const laneW = frameW * 0.62;
+  const laneH = frameH * 0.965;
+  let dw = laneW;
+  let dh = dw / sourceRatio;
+  if (dh > laneH) {
+    dh = laneH;
+    dw = dh * sourceRatio;
+  }
+
+  const laneCenter = side === "left" ? frameX + frameW * 0.39 : frameX + frameW * 0.61;
+  const dx = laneCenter - dw / 2;
+  const dy = frameY + frameH * 0.975 - dh;
+  const visibleW = Math.max(frameW * 0.18, Math.min(frameW * 0.45, dw * 0.7));
+  drawContactShadow(ctx, laneCenter, frameY + frameH * 0.955, visibleW, frameH * 0.068);
 
   ctx.save();
   ctx.shadowColor = "rgba(28,24,20,0.13)";
   ctx.shadowBlur = 10;
   ctx.shadowOffsetY = 4;
-  ctx.drawImage(
-    img,
-    geometry.sx,
-    geometry.sy,
-    geometry.sw,
-    geometry.sh,
-    geometry.dx,
-    geometry.dy,
-    geometry.dw,
-    geometry.dh,
-  );
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
   ctx.restore();
 }
 
@@ -230,7 +214,7 @@ function drawGhostSubject(
   side: "left" | "right",
 ) {
   if (!src.includes("#fallback") && imageHasTransparency(img)) {
-    drawAlignedCutout(ctx, img, frameX, frameY, frameW, frameH);
+    drawPlacedCutout(ctx, img, frameX, frameY, frameW, frameH, side);
   } else {
     drawFallbackPortrait(ctx, img, frameX, frameY, frameW, frameH, side);
   }
@@ -247,6 +231,7 @@ export async function generateGhostStrip(opts: GhostCompositeOptions): Promise<s
     vignette = true,
     label,
     date,
+    paperStyle,
   } = opts;
 
   const cfg = getLayout(layout);
@@ -266,7 +251,7 @@ export async function generateGhostStrip(opts: GhostCompositeOptions): Promise<s
   canvas.height = totalH;
   const ctx = canvas.getContext("2d")!;
 
-  const paperColor = "#FBF7EF";
+  const paperColor = getPaperStyle(paperStyle).color;
   drawPaperBase(ctx, canvas.width, canvas.height, paperColor);
 
   const bg = BACKGROUNDS.find((item) => item.id === backgroundId) || BACKGROUNDS[0];

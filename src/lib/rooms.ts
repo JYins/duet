@@ -4,6 +4,7 @@ import { getSupabase } from "./supabase";
 import type { Room, RoomParticipant, RoomMode } from "@/types/room";
 import type { FrameLayout } from "./composite";
 import { getLayout } from "./composite";
+import type { PaperStyleId } from "./paper-styles";
 import type { TranslationKey } from "./i18n";
 
 function generateShortCode(): string {
@@ -23,6 +24,8 @@ export interface CreateRoomOpts {
   lutPreset?: string;
   participantCount?: number;
   backgroundId?: string;
+  label?: string;
+  paperStyle?: PaperStyleId | string;
 }
 
 export async function createRoom(opts: CreateRoomOpts): Promise<Room> {
@@ -42,6 +45,8 @@ export async function createRoom(opts: CreateRoomOpts): Promise<Room> {
       lut_preset: opts.lutPreset || "k-booth",
       participant_count: participantCount,
       background_id: opts.backgroundId || "cream",
+      label: opts.label?.trim() || null,
+      paper_style: opts.paperStyle || "porcelain",
       status: "waiting",
     })
     .select()
@@ -172,6 +177,13 @@ export async function updateParticipant(
   if (error) throw new Error(error.message);
 }
 
+export async function resetParticipantSubmission(participantId: string): Promise<void> {
+  await updateParticipant(participantId, {
+    status: "shooting",
+    photo_paths: [],
+  });
+}
+
 export async function markParticipantSubmitted(
   participantId: string,
   photoPaths: string[],
@@ -203,6 +215,16 @@ export function collectSubmittedPhotos(
     photos.push(...ownedPhotos);
   }
   return photos.length > 0 ? photos : null;
+}
+
+export function buildParticipantLabel(participants: RoomParticipant[], fallback?: string | null): string | undefined {
+  const custom = fallback?.trim();
+  if (custom) return custom;
+  const names = sortParticipants(participants)
+    .map((participant) => participant.display_name?.trim())
+    .filter((name): name is string => Boolean(name));
+  if (names.length >= 2) return names.slice(0, 4).join(" + ");
+  return undefined;
 }
 
 export function collectGhostCutouts(

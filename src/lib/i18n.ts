@@ -406,6 +406,11 @@ const translations = {
     zh: "背景",
     ko: "배경",
   },
+  "config.paper": {
+    en: "Paper",
+    zh: "相纸",
+    ko: "인화지",
+  },
   "config.createRoom": {
     en: "Create room",
     zh: "创建房间",

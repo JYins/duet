@@ -13,6 +13,7 @@ import { captureFrame } from "@/lib/camera";
 import { generateStrip } from "@/lib/composite";
 import { LUT_CSS_FILTERS, type LutPreset } from "@/lib/lut";
 import {
+  buildParticipantLabel,
   collectSubmittedPhotos,
   createRoom,
   getParticipants,
@@ -21,6 +22,7 @@ import {
   joinRoom,
   markParticipantSubmitted,
   markRoomComplete,
+  resetParticipantSubmission,
   sortParticipants,
   subscribeToRoom,
   subscribeToParticipants,
@@ -108,6 +110,8 @@ export default function CreatePage() {
         lut: settings.lut,
         grain: true,
         vignette: true,
+        label: buildParticipantLabel(roomParticipants, settings.label),
+        paperStyle: settings.paperStyle,
       });
       let finalUrl = strip;
       try {
@@ -168,6 +172,8 @@ export default function CreatePage() {
         lutPreset: nextSettings.lut,
         participantCount: nextSettings.participantCount,
         backgroundId: nextSettings.backgroundId,
+        label: nextSettings.label,
+        paperStyle: nextSettings.paperStyle,
       });
       setRoomId(room.id);
       setRoomCode(room.short_code);
@@ -243,11 +249,23 @@ export default function CreatePage() {
 
   const toggleSelect = useCallback((idx: number) => {
     setSelectedIndices((prev) => {
-      if (prev.includes(idx)) return prev.filter((item) => item !== idx);
-      if (prev.length >= neededCount) return prev;
-      return [...prev, idx];
+      const unique = prev.filter((item, i) => prev.indexOf(item) === i);
+      if (unique.includes(idx)) return unique.filter((item) => item !== idx);
+      if (unique.length >= neededCount) return unique;
+      return [...unique, idx];
     });
   }, [neededCount]);
+
+  const reorderSelection = useCallback((from: number, to: number) => {
+    setSelectedIndices((prev) => {
+      if (to < 0 || to >= prev.length) return prev;
+      const next = prev.filter((item, i) => prev.indexOf(item) === i);
+      const [item] = next.splice(from, 1);
+      if (item === undefined) return prev;
+      next.splice(to, 0, item);
+      return next;
+    });
+  }, []);
 
   const submitPhotos = useCallback(async () => {
     if (!roomId || !myParticipant || selectedIndices.length !== neededCount) return;
@@ -272,6 +290,28 @@ export default function CreatePage() {
       uploadRef.current = false;
     }
   }, [myParticipant, neededCount, roomId, selectedIndices, shots, t]);
+
+  const retakeSubmitted = useCallback(async () => {
+    if (!myParticipant || uploadRef.current || captureRef.current || resultRef.current) return;
+    compositingRef.current = false;
+    setErrorMsg(null);
+    setShots([]);
+    setSelectedIndices([]);
+    setShotCount(0);
+    setLastCapture(null);
+    try {
+      await resetParticipantSubmission(myParticipant.id);
+      const resetMe: RoomParticipant = { ...myParticipant, status: "shooting", photo_paths: [] };
+      setMyParticipant(resetMe);
+      setParticipants((prev) => sortParticipants(prev.map((participant) => (
+        participant.id === resetMe.id ? resetMe : participant
+      ))));
+      start("user");
+      setPhase("shooting");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : t("error.capture"));
+    }
+  }, [myParticipant, start, t]);
 
   const retake = useCallback(() => {
     compositingRef.current = false;
@@ -302,6 +342,8 @@ export default function CreatePage() {
       lut: preset,
       grain: true,
       vignette: true,
+      label: buildParticipantLabel(participants, settings.label),
+      paperStyle: settings.paperStyle,
     });
     setStripUrl(strip);
     setPhase("done");
@@ -356,6 +398,7 @@ export default function CreatePage() {
                 participants={participants}
                 expectedCount={settings?.participantCount || 2}
                 currentUserId={sessionId}
+                onRetake={!stripUrl ? retakeSubmitted : undefined}
               />
             )}
           </motion.div>
@@ -420,7 +463,14 @@ export default function CreatePage() {
               <p className="font-serif text-2xl italic text-[#2C2C2A]">{t("booth.selectPhotos")}</p>
               <p className="mt-1 text-xs text-[#8A8780]">{selectedIndices.length}/{neededCount}</p>
             </div>
-            <PhotoStripPreview shots={shots} selectedIndices={selectedIndices} onToggle={toggleSelect} neededCount={neededCount} />
+            <PhotoStripPreview
+              shots={shots}
+              selectedIndices={selectedIndices}
+              onToggle={toggleSelect}
+              onReorder={reorderSelection}
+              neededCount={neededCount}
+              slotStart={myParticipant?.slot_start || 0}
+            />
             <button
               type="button"
               onClick={submitPhotos}

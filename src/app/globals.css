@@ -257,4 +257,24 @@
   .strip-empty {
     @apply border-dashed opacity-45;
   }
+
+  .strip-order-tray {
+    @apply flex w-full max-w-[22rem] gap-2 overflow-x-auto rounded-2xl border border-[#2C2C2A]/10 bg-[#FDFCF9]/70 p-2 shadow-sm;
+  }
+
+  .strip-order-item {
+    @apply flex shrink-0 items-center gap-1 rounded-xl bg-[#F5F2EA]/80 px-1.5 py-1;
+  }
+
+  .strip-order-thumb {
+    @apply relative h-14 w-11 overflow-hidden rounded-lg border border-[#2C2C2A]/10 bg-[#FDFCF9] shadow-sm;
+  }
+
+  .strip-order-slot {
+    @apply absolute bottom-1 left-1/2 flex h-5 min-w-5 -translate-x-1/2 items-center justify-center rounded-full bg-[#2C2C2A]/85 px-1.5 text-[9px] font-medium text-[#F5F2EA];
+  }
+
+  .strip-order-move {
+    @apply flex h-7 w-7 items-center justify-center rounded-full text-[#6F6A61] transition disabled:text-[#C9C4BA] enabled:hover:bg-[#EDE9DF];
+  }
 }

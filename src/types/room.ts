@@ -13,6 +13,8 @@ export interface Room {
   participant_count: number;
   background_id: string;
   lut_preset: string;
+  label: string | null;
+  paper_style: string | null;
   result_path: string | null;
   completed_at: string | null;
   // legacy fields kept for backward compat

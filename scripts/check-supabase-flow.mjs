@@ -73,13 +73,13 @@ async function main() {
 
   print("ok", "Supabase env", new URL(url).host);
 
-  const v3 = await supabase.from("rooms").select("id,result_path,completed_at").limit(1);
-  if (v3.error) {
-    fail("v3 prerequisite", v3.error);
-    console.log("\nFlow check did not create test data. Run supabase-migration-v3.sql, or supabase-duet-full.sql for a fresh project.");
+  const v4 = await supabase.from("rooms").select("id,result_path,completed_at,label,paper_style").limit(1);
+  if (v4.error) {
+    fail("v4 prerequisite", v4.error);
+    console.log("\nFlow check did not create test data. Run supabase-migration-v3.sql and supabase-migration-v4.sql, or supabase-duet-full.sql for a fresh project.");
     stop();
   }
-  print("ok", "v3 prerequisite", "rooms.result_path and completed_at are readable");
+  print("ok", "v4 prerequisite", "rooms result, label, and paper style columns are readable");
 
   const rpcProbe = await supabase.rpc("claim_participant_slot_v1", {
     p_room_id: "00000000-0000-0000-0000-000000000000",
@@ -108,10 +108,12 @@ async function main() {
       lut_preset: "warm-film",
       participant_count: 2,
       background_id: "cream",
+      label: "Flow Check",
+      paper_style: "blush",
       status: "waiting",
       expires_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
     })
-    .select("id,short_code,participant_count,layout")
+    .select("id,short_code,participant_count,layout,label,paper_style")
     .single());
 
   if (!room) stop();
@@ -179,6 +181,25 @@ async function main() {
   print("ok", "cutout storage upload", "uploaded tiny PNG frames");
 
   await requireOk("mark host submitted", supabase
+    .from("room_participants")
+    .update({ status: "submitted", photo_paths: hostUrls })
+    .eq("id", host.id)
+    .select("id")
+    .single());
+
+  const resetHost = await requireOk("reset host for retake", supabase
+    .from("room_participants")
+    .update({ status: "shooting", photo_paths: [] })
+    .eq("id", host.id)
+    .select("id,status,photo_paths")
+    .single());
+
+  if (!resetHost || resetHost.status !== "shooting" || resetHost.photo_paths.length !== 0) {
+    fail("reset host for retake", `status=${resetHost?.status}, paths=${resetHost?.photo_paths?.length}`);
+    stop();
+  }
+
+  await requireOk("resubmit host after retake", supabase
     .from("room_participants")
     .update({ status: "submitted", photo_paths: hostUrls })
     .eq("id", host.id)
