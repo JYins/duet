@@ -192,7 +192,7 @@ async function main() {
     .select("id")
     .single());
 
-  const resultObjectPath = `${room.id}/flow-check.png`;
+  const resultObjectPath = `${room.id}/strip-${Date.now()}.png`;
   const resultUpload = await supabase.storage.from("results").upload(resultObjectPath, pngBlob, {
     contentType: "image/png",
     upsert: false,

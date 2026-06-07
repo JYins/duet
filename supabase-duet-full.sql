@@ -158,13 +158,27 @@ VALUES
   ('results', 'results', true)
 ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
 
-DO $$
-BEGIN
-  CREATE POLICY "anyone can upload cutouts"
-    ON storage.objects FOR INSERT
-    WITH CHECK (bucket_id = 'cutouts');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+DROP POLICY IF EXISTS "anyone can upload cutouts" ON storage.objects;
+CREATE POLICY "anyone can upload cutouts"
+  ON storage.objects FOR INSERT
+  WITH CHECK (
+    bucket_id = 'cutouts'
+    AND array_length(storage.foldername(name), 1) = 1
+    AND CASE
+      WHEN (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        AND storage.filename(name) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9]+\.(png|jpg|jpeg)$'
+      THEN EXISTS (
+        SELECT 1
+        FROM public.rooms r
+        JOIN public.room_participants p
+          ON p.room_id = r.id
+        WHERE r.id = ((storage.foldername(name))[1])::uuid
+          AND p.id = (substring(storage.filename(name) FROM '^([0-9a-fA-F-]{36})-'))::uuid
+          AND r.expires_at > now()
+      )
+      ELSE FALSE
+    END
+  );
 
 DO $$
 BEGIN
@@ -174,22 +188,51 @@ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-DO $$
-BEGIN
-  CREATE POLICY "anyone can update cutouts"
-    ON storage.objects FOR UPDATE
-    USING (bucket_id = 'cutouts')
-    WITH CHECK (bucket_id = 'cutouts');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+DROP POLICY IF EXISTS "anyone can update cutouts" ON storage.objects;
+CREATE POLICY "anyone can update cutouts"
+  ON storage.objects FOR UPDATE
+  USING (
+    bucket_id = 'cutouts'
+    AND array_length(storage.foldername(name), 1) = 1
+    AND storage.filename(name) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9]+\.(png|jpg|jpeg)$'
+  )
+  WITH CHECK (
+    bucket_id = 'cutouts'
+    AND array_length(storage.foldername(name), 1) = 1
+    AND CASE
+      WHEN (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        AND storage.filename(name) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9]+\.(png|jpg|jpeg)$'
+      THEN EXISTS (
+        SELECT 1
+        FROM public.rooms r
+        JOIN public.room_participants p
+          ON p.room_id = r.id
+        WHERE r.id = ((storage.foldername(name))[1])::uuid
+          AND p.id = (substring(storage.filename(name) FROM '^([0-9a-fA-F-]{36})-'))::uuid
+          AND r.expires_at > now()
+      )
+      ELSE FALSE
+    END
+  );
 
-DO $$
-BEGIN
-  CREATE POLICY "anyone can upload results"
-    ON storage.objects FOR INSERT
-    WITH CHECK (bucket_id = 'results');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+DROP POLICY IF EXISTS "anyone can upload results" ON storage.objects;
+CREATE POLICY "anyone can upload results"
+  ON storage.objects FOR INSERT
+  WITH CHECK (
+    bucket_id = 'results'
+    AND array_length(storage.foldername(name), 1) = 1
+    AND storage.filename(name) ~* '^strip-[0-9]+\.(png|jpg|jpeg)$'
+    AND CASE
+      WHEN (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      THEN EXISTS (
+        SELECT 1
+        FROM public.rooms r
+        WHERE r.id = ((storage.foldername(name))[1])::uuid
+          AND r.expires_at > now()
+      )
+      ELSE FALSE
+    END
+  );
 
 DO $$
 BEGIN
