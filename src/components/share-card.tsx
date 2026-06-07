@@ -17,11 +17,22 @@ export default function ShareCard({ url, code }: ShareCardProps) {
 
   const copy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(url);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        throw new Error("clipboard unavailable");
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
-      // fallback
+      const input = document.createElement("input");
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      document.body.removeChild(input);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
     }
   }, [url]);
 

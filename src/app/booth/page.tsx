@@ -1,36 +1,41 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Camera, RefreshCw, Loader2, Check } from "lucide-react";
 import Image from "next/image";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Grid2X2, Loader2, RefreshCw, Sparkles, Timer, Wand2 } from "lucide-react";
 import { useCamera } from "@/hooks/use-camera";
 import { useCountdown } from "@/hooks/use-countdown";
 import { useLocale } from "@/hooks/use-locale";
 import { captureFrame } from "@/lib/camera";
-import { generateStrip, type FrameLayout } from "@/lib/composite";
+import { generateStrip, getLayout, type FrameLayout } from "@/lib/composite";
 import type { LutPreset } from "@/lib/lut";
 import { LUT_CSS_FILTERS } from "@/lib/lut";
-import Viewfinder from "@/components/viewfinder";
-import CountdownOverlay from "@/components/countdown-overlay";
-import ShutterFlash from "@/components/shutter-flash";
+import type { CaptureShot } from "@/types/capture";
+import BoothShell from "@/components/booth-shell";
+import BottomControlDock from "@/components/bottom-control-dock";
+import CaptureStage from "@/components/capture-stage";
+import LabelInput from "@/components/label-input";
+import LayoutPicker from "@/components/layout-picker";
+import LutPicker from "@/components/lut-picker";
+import ParticipantStatusRail from "@/components/participant-status-rail";
+import PhotoStripPreview from "@/components/photo-strip-preview";
 import ShotCounter from "@/components/shot-counter";
 import StripResult from "@/components/strip-result";
-import LutPicker from "@/components/lut-picker";
-import LayoutPicker from "@/components/layout-picker";
-import LabelInput from "@/components/label-input";
 
 const DEFAULT_COUNTDOWN = 5;
-const BETWEEN_SHOT_DELAY = 2000; // 2s pause between shots to let user repose
+const BETWEEN_SHOT_DELAY = 2000;
 
 type Phase = "ready" | "shooting" | "reviewing" | "processing" | "done";
 
 export default function BoothPage() {
-  const { videoRef, ready, error, start, stop, flip } = useCamera();
+  const { videoRef, ready, error, facing, start, stop, flip } = useCamera();
   const { count, run: runCountdown } = useCountdown(DEFAULT_COUNTDOWN);
   const { t } = useLocale();
 
   const [phase, setPhase] = useState<Phase>("ready");
+  const [shots, setShots] = useState<CaptureShot[]>([]);
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [shotCount, setShotCount] = useState(0);
   const [totalShots, setTotalShots] = useState(4);
   const [flash, setFlash] = useState(false);
@@ -40,52 +45,51 @@ export default function BoothPage() {
   const [countdownSec, setCountdownSec] = useState(DEFAULT_COUNTDOWN);
   const [stripUrl, setStripUrl] = useState<string | null>(null);
   const [lastCapture, setLastCapture] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // refs for settings (avoid stale closures)
-  const lutRef = useRef(lut); lutRef.current = lut;
-  const layoutRef = useRef(frameLayout); layoutRef.current = frameLayout;
-  const labelRef = useRef(customLabel); labelRef.current = customLabel;
-
-  // capture buffers — filtered for fast composite, raw for re-grading
-  const filteredRef = useRef<string[]>([]);
-  const rawRef = useRef<string[]>([]);
-  const captureLutRef = useRef<LutPreset>("warm-film");
-
-  // selected photos for final strip
-  const filteredSelectedRef = useRef<string[]>([]);
-  const rawSelectedRef = useRef<string[]>([]);
+  const neededCount = getLayout(frameLayout).count;
+  const selectedShots = useMemo(() => {
+    const indices = selectedIndices.length > 0
+      ? selectedIndices
+      : shots.slice(0, neededCount).map((shot) => shot.index);
+    return indices
+      .map((index) => shots.find((shot) => shot.index === index))
+      .filter((shot): shot is CaptureShot => Boolean(shot));
+  }, [neededCount, selectedIndices, shots]);
 
   useEffect(() => {
     start("user");
   }, [start]);
 
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  // build strip using filtered photos when lut hasn't changed (fast path)
-  // or raw photos + new lut when user re-graded
   const buildStrip = useCallback(async () => {
-    const useFiltered = lutRef.current === captureLutRef.current;
-    const photos = useFiltered ? filteredSelectedRef.current : rawSelectedRef.current;
+    const photos = selectedShots.map((shot) => shot.rawUrl);
+    if (photos.length < neededCount) {
+      throw new Error(t("error.selectPhotos"));
+    }
     return generateStrip({
-      photos,
-      layout: layoutRef.current,
-      lut: useFiltered ? "none" : lutRef.current,
+      photos: photos.slice(0, neededCount),
+      layout: frameLayout,
+      lut,
       grain: true,
       vignette: true,
-      label: labelRef.current || undefined,
+      label: customLabel || undefined,
     });
-  }, []);
+  }, [customLabel, frameLayout, lut, neededCount, selectedShots, t]);
 
   const shoot = useCallback(async () => {
-    if (!videoRef.current || !ready) return;
+    if (!videoRef.current || !ready || phase !== "ready") return;
 
     setPhase("shooting");
-    filteredRef.current = [];
-    rawRef.current = [];
-    captureLutRef.current = lutRef.current;
+    setShots([]);
+    setSelectedIndices([]);
+    setErrorMsg(null);
     setShotCount(0);
+    setStripUrl(null);
     setLastCapture(null);
 
+    const captured: CaptureShot[] = [];
     for (let i = 0; i < totalShots; i++) {
       await runCountdown(countdownSec);
 
@@ -94,10 +98,12 @@ export default function BoothPage() {
         videoRef.current,
         1080,
         1440,
-        LUT_CSS_FILTERS[lutRef.current],
+        LUT_CSS_FILTERS[lut],
+        facing === "user",
       );
-      filteredRef.current.push(filtered);
-      rawRef.current.push(raw);
+      const shot = { index: i, rawUrl: raw, filteredUrl: filtered, selected: i < neededCount };
+      captured.push(shot);
+      setShots([...captured]);
       setShotCount(i + 1);
       setLastCapture(filtered);
 
@@ -111,324 +117,233 @@ export default function BoothPage() {
     }
 
     stop();
+    setSelectedIndices(captured.slice(0, neededCount).map((shot) => shot.index));
     setPhase("reviewing");
-  }, [ready, videoRef, runCountdown, totalShots, countdownSec, stop]);
-
-  // user selects photos (toggle selection) then confirms
-  const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
-  const neededCount = frameLayout === "1x3" ? 3 : frameLayout === "2x3" ? 6 : 4;
+  }, [countdownSec, facing, lut, neededCount, phase, ready, runCountdown, stop, totalShots, videoRef]);
 
   const toggleSelect = useCallback((idx: number) => {
     setSelectedIndices((prev) => {
-      if (prev.includes(idx)) return prev.filter((i) => i !== idx);
+      if (prev.includes(idx)) return prev.filter((item) => item !== idx);
       if (prev.length >= neededCount) return prev;
       return [...prev, idx];
     });
   }, [neededCount]);
 
   const confirmSelection = useCallback(async () => {
-    const indices = selectedIndices.length > 0
-      ? selectedIndices
-      : Array.from({ length: neededCount }, (_, i) => i);
-
-    filteredSelectedRef.current = indices.map((i) => filteredRef.current[i]);
-    rawSelectedRef.current = indices.map((i) => rawRef.current[i]);
+    if (selectedShots.length < neededCount) return;
     setPhase("processing");
-
-    const strip = await buildStrip();
-    setStripUrl(strip);
-    setPhase("done");
-  }, [selectedIndices, neededCount, buildStrip]);
-
-  // auto-confirm if exact count taken
-  useEffect(() => {
-    if (phase === "reviewing" && filteredRef.current.length <= neededCount) {
-      filteredSelectedRef.current = filteredRef.current.slice(0, neededCount);
-      rawSelectedRef.current = rawRef.current.slice(0, neededCount);
-      setPhase("processing");
-      buildStrip().then((strip) => {
-        setStripUrl(strip);
-        setPhase("done");
-      });
+    setErrorMsg(null);
+    try {
+      const strip = await buildStrip();
+      setStripUrl(strip);
+      setPhase("done");
+    } catch {
+      setErrorMsg(t("error.composite"));
+      setPhase("reviewing");
     }
-  }, [phase, neededCount, buildStrip]);
+  }, [buildStrip, neededCount, selectedShots.length, t]);
 
   const regenerate = useCallback(async () => {
-    if (filteredSelectedRef.current.length === 0) return;
+    if (phase !== "done" || selectedShots.length < neededCount) return;
     setPhase("processing");
-    const strip = await buildStrip();
-    setStripUrl(strip);
-    setPhase("done");
-  }, [buildStrip]);
-
-  const handleLutChange = useCallback(
-    (preset: LutPreset) => {
-      setLut(preset);
-      lutRef.current = preset;
-      if (filteredSelectedRef.current.length > 0) regenerate();
-    },
-    [regenerate],
-  );
-
-  const handleLayoutChange = useCallback(
-    (l: FrameLayout) => {
-      setFrameLayout(l);
-      layoutRef.current = l;
-      if (filteredSelectedRef.current.length > 0) regenerate();
-    },
-    [regenerate],
-  );
-
-  const handleLabelBlur = useCallback(() => {
-    if (filteredSelectedRef.current.length > 0) regenerate();
-  }, [regenerate]);
+    setErrorMsg(null);
+    try {
+      const strip = await buildStrip();
+      setStripUrl(strip);
+      setPhase("done");
+    } catch {
+      setErrorMsg(t("error.refreshStrip"));
+      setPhase("done");
+    }
+  }, [buildStrip, neededCount, phase, selectedShots.length, t]);
 
   const retake = useCallback(() => {
-    filteredRef.current = [];
-    rawRef.current = [];
-    filteredSelectedRef.current = [];
-    rawSelectedRef.current = [];
+    setShots([]);
     setShotCount(0);
     setStripUrl(null);
     setLastCapture(null);
+    setErrorMsg(null);
     setSelectedIndices([]);
     setPhase("ready");
     start("user");
   }, [start]);
 
+  const handleLayoutChange = useCallback((layout: FrameLayout) => {
+    setFrameLayout(layout);
+    const nextNeeded = getLayout(layout).count;
+    setTotalShots((current) => Math.max(current, nextNeeded));
+    setSelectedIndices((prev) => {
+      if (prev.length > nextNeeded) return prev.slice(0, nextNeeded);
+      return prev;
+    });
+  }, []);
+
+  const step = phase === "done" ? "STEP 4 / 4" : phase === "reviewing" ? "STEP 3 / 4" : "STEP 2 / 4";
+
   return (
-    <main className="flex min-h-[100dvh] flex-col items-center bg-[#F5F2EA]">
-      <header className="flex w-full max-w-lg items-center justify-between px-4 pt-[max(env(safe-area-inset-top),1.5rem)] pb-3 sm:px-6 sm:pt-8">
-        <motion.span
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="font-serif text-base italic text-[#2C2C2A]/40 sm:text-lg"
-        >
-          Duet
-        </motion.span>
-      </header>
+    <BoothShell step={step}>
+      <ParticipantStatusRail
+        leftLabel={t("booth.you")}
+        rightLabel={t("booth.solo")}
+        centerLabel={t("shell.privateBooth")}
+        centerSubtext={phase === "ready" ? t("booth.readyToCapture") : `${shotCount}/${totalShots} ${t("booth.captured")}`}
+      />
+      {errorMsg && (
+        <div className="rounded-2xl border border-[#C45B4A]/20 bg-[#FFF7F4] px-4 py-3 text-center text-xs text-[#A44B3D]">
+          {errorMsg}
+        </div>
+      )}
 
-      <div className="flex flex-1 flex-col items-center justify-center px-4 pb-[max(env(safe-area-inset-bottom),2rem)] sm:px-6">
-        <AnimatePresence mode="wait">
-          {/* ---- CAMERA PHASE ---- */}
-          {(phase === "ready" || phase === "shooting") && (
-            <motion.div
-              key="camera"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.4 }}
-              className="flex flex-col items-center gap-4 sm:gap-5"
-            >
-              <div className="relative">
-                <Viewfinder ref={videoRef} cssFilter={LUT_CSS_FILTERS[lut]} />
-                <CountdownOverlay count={count} />
-                <ShutterFlash flash={flash} />
-
-                {!ready && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#2C2C2A]/50 backdrop-blur-sm">
-                    <Loader2 size={20} className="animate-spin text-white/80" />
-                    <p className="text-[11px] tracking-wide text-white/60">
-                      {t("booth.startingCamera")}
-                    </p>
-                  </div>
-                )}
-
-                {/* thumbnail of last capture — shown between shots */}
-                <AnimatePresence>
-                  {lastCapture && phase === "shooting" && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      transition={{ duration: 0.3 }}
-                      className="absolute bottom-3 right-3 h-16 w-12 overflow-hidden rounded-md border-2 border-white/80 shadow-lg sm:h-20 sm:w-15"
+      <AnimatePresence mode="wait">
+        {(phase === "ready" || phase === "shooting") && (
+          <motion.div
+            key="camera"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            className="flex flex-1 flex-col gap-3"
+          >
+            <CaptureStage
+              ref={videoRef}
+              ready={ready}
+              error={error}
+              mirrored={facing === "user"}
+              cssFilter={LUT_CSS_FILTERS[lut]}
+              count={count}
+              flash={flash}
+              hint={phase === "ready" ? t("booth.tapToShoot") : undefined}
+              lastCapture={
+                lastCapture ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    className="absolute bottom-4 right-4 z-10 h-20 w-15 overflow-hidden rounded-xl border-2 border-white/85 shadow-lg"
+                  >
+                    <Image src={lastCapture} alt={t("booth.lastCapture")} fill className="object-cover" unoptimized />
+                  </motion.div>
+                ) : null
+              }
+            />
+            <ShotCounter total={totalShots} current={shotCount} />
+            {phase === "ready" && (
+              <div className="space-y-2 rounded-[1.25rem] border border-[#2C2C2A]/10 bg-[#FDFCF9]/60 p-3">
+                <LutPicker value={lut} onChange={setLut} />
+                <div className="flex items-center justify-center gap-4 text-[11px] text-[#6F6A61]">
+                  <label className="flex items-center gap-2">
+                    {t("booth.countdown")}
+                    <select
+                      value={countdownSec}
+                      onChange={(event) => setCountdownSec(Number(event.target.value))}
+                      className="rounded-full border border-[#DDD9D0] bg-[#FDFCF9] px-3 py-1.5 text-[11px] text-[#2C2C2A]"
                     >
-                      <Image
-                        src={lastCapture}
-                        alt="last shot"
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center bg-[#2C2C2A]/20">
-                        <Check size={14} className="text-white" />
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {error && (
-                  <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-[#2C2C2A]/80 px-5">
-                    <p className="text-center text-xs text-white/70">{error}</p>
-                  </div>
-                )}
+                      <option value={3}>3s</option>
+                      <option value={5}>5s</option>
+                      <option value={10}>10s</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    {t("booth.shots")}
+                    <select
+                      value={totalShots}
+                      onChange={(event) => setTotalShots(Number(event.target.value))}
+                      className="rounded-full border border-[#DDD9D0] bg-[#FDFCF9] px-3 py-1.5 text-[11px] text-[#2C2C2A]"
+                    >
+                      <option value={neededCount}>{neededCount}</option>
+                      <option value={Math.max(neededCount + 2, 6)}>{Math.max(neededCount + 2, 6)}</option>
+                      <option value={10}>10</option>
+                    </select>
+                  </label>
+                </div>
               </div>
+            )}
+            <BottomControlDock
+              onShutter={shoot}
+              shutterDisabled={!ready || phase !== "ready"}
+              tools={[
+                { id: "layout", label: t("booth.toolLayout"), value: frameLayout, icon: <Grid2X2 size={22} strokeWidth={1.5} /> },
+                { id: "ghost", label: t("booth.toolGhost"), value: t("booth.toolOff"), icon: <Wand2 size={22} strokeWidth={1.5} /> },
+                { id: "filter", label: t("booth.toolFilter"), value: lut === "warm-film" ? t("booth.toolFilmWarm") : lut, icon: <Sparkles size={22} strokeWidth={1.5} />, active: true },
+                { id: "flip", label: t("booth.toolFlip"), value: t("booth.toolLens"), icon: <RefreshCw size={22} strokeWidth={1.5} />, onClick: flip, disabled: phase !== "ready" },
+              ]}
+            />
+          </motion.div>
+        )}
 
-              <ShotCounter total={totalShots} current={shotCount} />
-
-              {/* pre-shoot settings */}
-              {phase === "ready" && ready && (
-                <motion.div
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col items-center gap-3"
-                >
-                  <LutPicker value={lut} onChange={(p) => { setLut(p); lutRef.current = p; }} />
-
-                  <div className="flex items-center gap-4 text-[10px] tracking-wide text-[#8A8780]">
-                    <label className="flex items-center gap-1.5">
-                      {t("booth.countdown")}
-                      <select
-                        value={countdownSec}
-                        onChange={(e) => setCountdownSec(Number(e.target.value))}
-                        className="rounded-full border border-[#DDD9D0] bg-transparent px-2 py-1 text-[10px] text-[#2C2C2A] focus:outline-none"
-                      >
-                        <option value={3}>3s</option>
-                        <option value={5}>5s</option>
-                        <option value={10}>10s</option>
-                      </select>
-                    </label>
-                    <label className="flex items-center gap-1.5">
-                      shots
-                      <select
-                        value={totalShots}
-                        onChange={(e) => setTotalShots(Number(e.target.value))}
-                        className="rounded-full border border-[#DDD9D0] bg-transparent px-2 py-1 text-[10px] text-[#2C2C2A] focus:outline-none"
-                      >
-                        <option value={neededCount}>{neededCount}</option>
-                        {neededCount < 6 && <option value={6}>6</option>}
-                        <option value={8}>8</option>
-                        <option value={10}>10</option>
-                      </select>
-                    </label>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* shutter button */}
-              <div className="flex items-center gap-5">
-                <button
-                  onClick={flip}
-                  disabled={phase !== "ready"}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-[#DDD9D0] text-[#2C2C2A]/60 transition-all duration-300 hover:border-[#D4A574] disabled:opacity-30 sm:h-10 sm:w-10"
-                >
-                  <RefreshCw size={15} />
-                </button>
-                <button
-                  onClick={shoot}
-                  disabled={!ready || phase !== "ready"}
-                  className="group relative flex h-14 w-14 items-center justify-center rounded-full bg-[#2C2C2A] transition-all duration-300 hover:scale-105 active:scale-95 disabled:opacity-30 sm:h-16 sm:w-16"
-                >
-                  <span className="absolute inset-0 rounded-full border-2 border-[#2C2C2A]/20 group-hover:border-[#D4A574]/40" />
-                  <Camera size={18} className="text-[#F5F2EA] sm:h-5 sm:w-5" />
-                </button>
-                <div className="h-9 w-9 sm:h-10 sm:w-10" />
-              </div>
-
-              {phase === "ready" && ready && (
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.3 }}
-                  className="text-[10px] tracking-wide text-[#8A8780]"
-                >
-                  {t("booth.tapToShoot")}
-                </motion.p>
-              )}
-            </motion.div>
-          )}
-
-          {/* ---- REVIEW/SELECT PHASE ---- */}
-          {phase === "reviewing" && filteredRef.current.length > neededCount && (
-            <motion.div
-              key="review"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex flex-col items-center gap-5"
-            >
-              <p className="text-xs tracking-wide text-[#8A8780]">
-                {t("booth.selectPhotos")} ({selectedIndices.length}/{neededCount})
+        {phase === "reviewing" && (
+          <motion.div
+            key="review"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-1 flex-col items-center justify-center gap-5"
+          >
+            <div className="text-center">
+              <p className="font-serif text-2xl italic text-[#2C2C2A]">{t("booth.selectPhotos")}</p>
+              <p className="mt-1 text-xs text-[#8A8780]">
+                {selectedIndices.length}/{neededCount}
               </p>
-
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
-                {filteredRef.current.map((src, i) => {
-                  const selIdx = selectedIndices.indexOf(i);
-                  const isSelected = selIdx !== -1;
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => toggleSelect(i)}
-                      className={`relative aspect-[3/4] w-16 overflow-hidden rounded-md border-2 transition-all sm:w-20 ${
-                        isSelected
-                          ? "border-[#2C2C2A] shadow-sm"
-                          : "border-transparent opacity-50 hover:opacity-100"
-                      }`}
-                    >
-                      <Image src={src} alt={`shot ${i + 1}`} fill className="object-cover" unoptimized />
-                      {isSelected && (
-                        <div className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#2C2C2A] text-[9px] font-medium text-white">
-                          {selIdx + 1}
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
+            </div>
+            <PhotoStripPreview
+              shots={shots}
+              selectedIndices={selectedIndices}
+              onToggle={toggleSelect}
+              neededCount={neededCount}
+            />
+            <div className="space-y-3">
+              <LayoutPicker value={frameLayout} onChange={handleLayoutChange} />
               <button
+                type="button"
                 onClick={confirmSelection}
                 disabled={selectedIndices.length !== neededCount}
-                className="flex items-center gap-1.5 rounded-full bg-[#2C2C2A] px-6 py-2.5 text-xs tracking-wide text-[#F5F2EA] disabled:opacity-30"
+                className="w-full rounded-full bg-[#2C2C2A] px-7 py-3 text-[13px] font-medium text-[#F5F2EA] disabled:opacity-30"
               >
-                <Check size={14} />
                 {t("booth.confirmSelection")}
               </button>
-            </motion.div>
-          )}
+            </div>
+          </motion.div>
+        )}
 
-          {/* ---- PROCESSING ---- */}
-          {phase === "processing" && (
-            <motion.div
-              key="processing"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex flex-col items-center gap-3"
-            >
-              <Loader2 size={20} className="animate-spin text-[#8A8780]" />
-              <p className="text-xs tracking-wide text-[#8A8780]">{t("booth.compositing")}</p>
-            </motion.div>
-          )}
+        {phase === "processing" && (
+          <motion.div
+            key="processing"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-1 flex-col items-center justify-center gap-3"
+          >
+            <Loader2 size={22} className="animate-spin text-[#8A8780]" />
+            <p className="text-xs tracking-wide text-[#8A8780]">{t("booth.compositing")}</p>
+          </motion.div>
+        )}
 
-          {/* ---- RESULT ---- */}
-          {phase === "done" && stripUrl && (
-            <motion.div
-              key="result"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.5 }}
-              className="flex flex-col items-center gap-5"
-            >
-              <StripResult stripUrl={stripUrl} onRetake={retake} />
-
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="flex flex-col items-center gap-2.5"
+        {phase === "done" && stripUrl && (
+          <motion.div
+            key="result"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-1 flex-col items-center justify-center gap-5"
+          >
+            <StripResult stripUrl={stripUrl} onRetake={retake} />
+            <div className="w-full space-y-3 rounded-[1.25rem] border border-[#2C2C2A]/10 bg-[#FDFCF9]/60 p-4">
+              <LayoutPicker value={frameLayout} onChange={handleLayoutChange} />
+              <LutPicker value={lut} onChange={(preset) => setLut(preset)} />
+              <div onBlur={regenerate}>
+                <LabelInput value={customLabel} onChange={setCustomLabel} />
+              </div>
+              <button
+                type="button"
+                onClick={regenerate}
+                className="mx-auto flex items-center gap-2 rounded-full border border-[#D4A574]/30 px-5 py-2 text-[12px] text-[#A97841]"
               >
-                <LayoutPicker value={frameLayout} onChange={handleLayoutChange} />
-                <LutPicker value={lut} onChange={handleLutChange} />
-                <div onBlur={handleLabelBlur}>
-                  <LabelInput value={customLabel} onChange={(v) => { setCustomLabel(v); labelRef.current = v; }} />
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </main>
+                <Timer size={14} strokeWidth={1.5} />
+                {t("booth.refreshStrip")}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </BoothShell>
   );
 }

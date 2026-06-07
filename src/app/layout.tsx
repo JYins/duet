@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist } from "next/font/google";
-import { Fraunces } from "next/font/google";
+import { Fraunces, Geist } from "next/font/google";
 import LocaleProvider from "@/components/locale-provider";
 import "./globals.css";
 
@@ -19,18 +18,18 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "Duet — take photos together, apart",
+  title: "Duet - Korean photo booth for two",
   description:
-    "collaborative photo booth for friends who are far apart. on-device portrait segmentation, shared backgrounds, unified color grading.",
+    "A mobile Korean-style photo booth for two people. Capture, align, compose, and share a warm film photo strip together.",
   openGraph: {
     title: "Duet",
-    description: "take photos together, even when you are apart",
+    description: "Take photos together, even when you are apart.",
     type: "website",
   },
   twitter: {
     card: "summary",
     title: "Duet",
-    description: "take photos together, even when you are apart",
+    description: "Take photos together, even when you are apart.",
   },
 };
 
@@ -52,7 +51,7 @@ export default function RootLayout({
       lang="en"
       className={`${geist.variable} ${fraunces.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-sans selection:bg-[#D4A574]/20">
+      <body className="flex min-h-full flex-col font-sans selection:bg-[#D4A574]/20">
         <LocaleProvider>{children}</LocaleProvider>
       </body>
     </html>

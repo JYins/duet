@@ -22,15 +22,18 @@ export interface CapturedFrame {
   filtered: string; // with CSS filter baked in, for fast composite
 }
 
-// capture a single frame from a video element
-// returns both raw and CSS-filtered versions so we can:
-//   - use filtered for instant composite (no LUT pass needed)
-//   - keep raw for re-grading with a different LUT later
+const PHOTO_MIME = "image/jpeg";
+const PHOTO_QUALITY = 0.92;
+
+// Capture a single frame from a video element.
+// Plain camera frames are JPEG to keep mobile uploads reasonable; transparent
+// cutouts and final strips are still generated as PNG in their own modules.
 export function captureFrame(
   video: HTMLVideoElement,
   width = 1080,
   height = 1440,
   cssFilter?: string,
+  mirrored = true,
 ): CapturedFrame {
   // compute crop region to match target 3:4 aspect ratio
   const vw = video.videoWidth;
@@ -56,9 +59,10 @@ export function captureFrame(
   rawCanvas.height = height;
   const rawCtx = rawCanvas.getContext("2d")!;
 
-  // mirror for front camera
-  rawCtx.translate(width, 0);
-  rawCtx.scale(-1, 1);
+  if (mirrored) {
+    rawCtx.translate(width, 0);
+    rawCtx.scale(-1, 1);
+  }
   rawCtx.drawImage(video, sx, sy, sw, sh, 0, 0, width, height);
 
   // ---- filtered capture (CSS filter baked in) ----
@@ -71,13 +75,14 @@ export function captureFrame(
     filteredCtx.filter = cssFilter;
   }
 
-  // mirror for front camera
-  filteredCtx.translate(width, 0);
-  filteredCtx.scale(-1, 1);
+  if (mirrored) {
+    filteredCtx.translate(width, 0);
+    filteredCtx.scale(-1, 1);
+  }
   filteredCtx.drawImage(video, sx, sy, sw, sh, 0, 0, width, height);
 
   return {
-    raw: rawCanvas.toDataURL("image/png"),
-    filtered: filteredCanvas.toDataURL("image/png"),
+    raw: rawCanvas.toDataURL(PHOTO_MIME, PHOTO_QUALITY),
+    filtered: filteredCanvas.toDataURL(PHOTO_MIME, PHOTO_QUALITY),
   };
 }

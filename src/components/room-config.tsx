@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { useLocale } from "@/hooks/use-locale";
-import type { FrameLayout } from "@/lib/composite";
+import { getLayout, type FrameLayout } from "@/lib/composite";
 import type { LutPreset } from "@/lib/lut";
 import type { RoomMode } from "@/types/room";
 import LayoutPicker from "./layout-picker";
@@ -41,6 +41,13 @@ export default function RoomConfig({ mode, onConfirm }: RoomConfigProps) {
     setBgUrl(bg.url ?? undefined);
   };
 
+  const participantOptions = [2, 3, 4].filter((count) => count <= getLayout(layout).count);
+  const handleLayoutChange = (nextLayout: FrameLayout) => {
+    setLayout(nextLayout);
+    const maxParticipants = getLayout(nextLayout).count;
+    setParticipants((current) => Math.min(current, maxParticipants));
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -58,7 +65,7 @@ export default function RoomConfig({ mode, onConfirm }: RoomConfigProps) {
             {t("config.participants")}
           </span>
           <div className="flex items-center gap-1">
-            {[2, 3, 4].map((n) => (
+            {participantOptions.map((n) => (
               <button
                 key={n}
                 onClick={() => setParticipants(n)}
@@ -80,7 +87,7 @@ export default function RoomConfig({ mode, onConfirm }: RoomConfigProps) {
         <span className="text-[10px] tracking-wide text-[#8A8780] uppercase">
           {t("config.layout")}
         </span>
-        <LayoutPicker value={layout} onChange={setLayout} />
+        <LayoutPicker value={layout} onChange={handleLayoutChange} />
       </div>
 
       {/* filter */}
@@ -102,7 +109,7 @@ export default function RoomConfig({ mode, onConfirm }: RoomConfigProps) {
         onClick={() => onConfirm({
           layout,
           lut,
-          participantCount: mode === "ghost" ? 2 : participants,
+          participantCount: mode === "ghost" ? 2 : Math.min(participants, getLayout(layout).count),
           backgroundId: bgId,
           bgColor,
           bgUrl,
