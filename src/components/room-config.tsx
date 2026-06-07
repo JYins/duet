@@ -29,7 +29,7 @@ interface RoomConfigProps {
 export default function RoomConfig({ mode, onConfirm }: RoomConfigProps) {
   const { t } = useLocale();
   const [layout, setLayout] = useState<FrameLayout>("2x2");
-  const [lut, setLut] = useState<LutPreset>("warm-film");
+  const [lut, setLut] = useState<LutPreset>("k-booth");
   const [participants, setParticipants] = useState(2);
   const [bgId, setBgId] = useState("cream");
   const [bgColor, setBgColor] = useState("#EDE9DF");

@@ -38,7 +38,7 @@ export async function createRoom(opts: CreateRoomOpts): Promise<Room> {
       short_code: shortCode,
       mode: opts.mode,
       layout: opts.layout,
-      lut_preset: opts.lutPreset || "warm-film",
+      lut_preset: opts.lutPreset || "k-booth",
       participant_count: participantCount,
       background_id: opts.backgroundId || "cream",
       status: "waiting",

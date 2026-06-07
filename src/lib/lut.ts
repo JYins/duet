@@ -105,7 +105,19 @@ export function applyLut(
   lut: LutData,
   intensity = 0.85,
 ) {
-  const imageData = ctx.getImageData(0, 0, w, h);
+  applyLutToRect(ctx, 0, 0, w, h, lut, intensity);
+}
+
+export function applyLutToRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  lut: LutData,
+  intensity = 0.85,
+) {
+  const imageData = ctx.getImageData(x, y, w, h);
   const data = imageData.data;
 
   for (let i = 0; i < data.length; i += 4) {
@@ -119,7 +131,7 @@ export function applyLut(
     data[i + 2] = Math.round(mix(b, lb, intensity) * 255);
   }
 
-  ctx.putImageData(imageData, 0, 0);
+  ctx.putImageData(imageData, x, y);
 }
 
 export function generateIdentityLut(size = 16): LutData {
@@ -133,6 +145,20 @@ export function generateWarmFilmLut(size = 16): LutData {
     const nr = contrast(lift(l + (r - l) * sat, 0.045), 0.94) + 0.035;
     const ng = contrast(lift(l + (g - l) * sat, 0.045), 0.94) + 0.014;
     const nb = contrast(lift(l + (b - l) * sat, 0.045), 0.94) - 0.030;
+    return [nr, ng, nb];
+  }, size);
+}
+
+export function generateKBoothLut(size = 16): LutData {
+  return makeLut((r, g, b) => {
+    const l = lum(r, g, b);
+    const highlight = Math.max(r, g, b);
+    const shadow = 1 - highlight;
+    const sat = 0.72 + highlight * 0.08;
+    const milk = 0.082;
+    const nr = contrast(lift(l + (r - l) * sat, milk), 0.86) + 0.030 + shadow * 0.010;
+    const ng = contrast(lift(l + (g - l) * sat, milk), 0.86) + 0.020 + highlight * 0.006;
+    const nb = contrast(lift(l + (b - l) * (sat * 0.92), milk), 0.86) - 0.008 + highlight * 0.004;
     return [nr, ng, nb];
   }, size);
 }
@@ -238,6 +264,7 @@ export function generateInstantLut(size = 16): LutData {
 
 export type LutPreset =
   | "none"
+  | "k-booth"
   | "warm-film"
   | "cool-desat"
   | "bw"
@@ -252,6 +279,7 @@ export type LutPreset =
 
 export function getLutByPreset(preset: LutPreset): LutData {
   switch (preset) {
+    case "k-booth": return generateKBoothLut();
     case "warm-film": return generateWarmFilmLut();
     case "cool-desat": return generateCoolDesatLut();
     case "bw": return generateBWLut();
@@ -268,6 +296,7 @@ export function getLutByPreset(preset: LutPreset): LutData {
 }
 
 export const LUT_PRESETS: { id: LutPreset; label: string }[] = [
+  { id: "k-booth", label: "seoul" },
   { id: "warm-film", label: "soft" },
   { id: "fuji-400h", label: "milk" },
   { id: "instant", label: "studio" },
@@ -284,6 +313,7 @@ export const LUT_PRESETS: { id: LutPreset; label: string }[] = [
 
 export const LUT_CSS_FILTERS: Record<LutPreset, string> = {
   none: "none",
+  "k-booth": "saturate(0.78) brightness(1.095) contrast(0.86) sepia(0.035)",
   "warm-film": "sepia(0.08) saturate(0.94) brightness(1.055) contrast(0.94)",
   "cool-desat": "saturate(0.68) brightness(1.04) contrast(0.95) hue-rotate(8deg)",
   bw: "grayscale(1) contrast(1.14) brightness(1.04)",

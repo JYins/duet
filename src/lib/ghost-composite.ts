@@ -1,11 +1,12 @@
-import { applyGrain, applyPaperTexture, applyVignette } from "./effects";
-import { applyLut, getLutByPreset, type LutPreset } from "./lut";
+import { applyPaperTexture } from "./effects";
+import { type LutPreset } from "./lut";
 import { BACKGROUNDS } from "./backgrounds";
 import {
   drawCover,
   drawFrameFinish,
   drawPaperBase,
   drawPhotoMount,
+  finishPhotoPrint,
   drawStripStamp,
   getPhotoImageRect,
   getLayout,
@@ -241,7 +242,7 @@ export async function generateGhostStrip(opts: GhostCompositeOptions): Promise<s
     person2Cutouts,
     backgroundId,
     layout = "2x2",
-    lut = "warm-film",
+    lut = "k-booth",
     grain = true,
     vignette = true,
     label,
@@ -302,16 +303,11 @@ export async function generateGhostStrip(opts: GhostCompositeOptions): Promise<s
 
     const p2 = await loadImage(person2Cutouts[i]);
     drawGhostSubject(ctx, p2, person2Cutouts[i], photo.x, photo.y, photo.w, photo.h, "right");
+    finishPhotoPrint(ctx, photo.x, photo.y, photo.w, photo.h, lut, grain, vignette);
 
     ctx.restore();
     drawFrameFinish(ctx, x, y, cfg.frameW, cfg.frameH);
   }
-
-  if (lut !== "none") {
-    applyLut(ctx, stripW, stripH, getLutByPreset(lut), 0.82);
-  }
-  if (grain) applyGrain(ctx, stripW, stripH, 0.026);
-  if (vignette) applyVignette(ctx, stripW, stripH, 0.10);
 
   drawStripStamp(ctx, canvas.width, stripH, stampH, paperColor, label, date);
   applyPaperTexture(ctx, canvas.width, canvas.height, 0.012);

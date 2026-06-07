@@ -1,5 +1,5 @@
-import { applyGrain, applyPaperTexture, applyVignette } from "./effects";
-import { applyLut, getLutByPreset, type LutPreset } from "./lut";
+import { applyGrainToRect, applyPaperTexture, applyStudioFlashToRect, applyVignetteToRect } from "./effects";
+import { applyLutToRect, getLutByPreset, type LutPreset } from "./lut";
 
 export type FrameLayout = "1x4" | "2x2" | "1x3" | "2x3" | "2x4" | "3x3";
 
@@ -173,6 +173,24 @@ export function drawPhotoMount(
   ctx.stroke();
 }
 
+export function finishPhotoPrint(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  lut: LutPreset,
+  grain: boolean,
+  vignette: boolean,
+) {
+  if (lut !== "none") {
+    applyLutToRect(ctx, x, y, w, h, getLutByPreset(lut), 0.86);
+  }
+  applyStudioFlashToRect(ctx, x, y, w, h);
+  if (grain) applyGrainToRect(ctx, x, y, w, h, 0.018);
+  if (vignette) applyVignetteToRect(ctx, x, y, w, h, 0.075);
+}
+
 export function drawStripStamp(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -215,7 +233,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
     photos,
     stripColor = "#FBF7EF",
     layout = "1x4",
-    lut = "warm-film",
+    lut = "k-booth",
     grain = true,
     vignette = true,
     label,
@@ -256,16 +274,11 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
 
     const img = await loadImage(photos[i]);
     drawCover(ctx, img, photo.x, photo.y, photo.w, photo.h);
+    finishPhotoPrint(ctx, photo.x, photo.y, photo.w, photo.h, lut, grain, vignette);
 
     ctx.restore();
     drawFrameFinish(ctx, x, y, cfg.frameW, cfg.frameH);
   }
-
-  if (lut !== "none") {
-    applyLut(ctx, stripW, stripH, getLutByPreset(lut), 0.82);
-  }
-  if (grain) applyGrain(ctx, stripW, stripH, 0.026);
-  if (vignette) applyVignette(ctx, stripW, stripH, 0.10);
 
   drawStripStamp(ctx, canvas.width, stripH, stampH, stripColor, label, date);
   applyPaperTexture(ctx, canvas.width, canvas.height, 0.012);

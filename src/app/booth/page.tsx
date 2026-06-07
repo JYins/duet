@@ -39,7 +39,7 @@ export default function BoothPage() {
   const [shotCount, setShotCount] = useState(0);
   const [totalShots, setTotalShots] = useState(4);
   const [flash, setFlash] = useState(false);
-  const [lut, setLut] = useState<LutPreset>("warm-film");
+  const [lut, setLut] = useState<LutPreset>("k-booth");
   const [frameLayout, setFrameLayout] = useState<FrameLayout>("1x4");
   const [customLabel, setCustomLabel] = useState("");
   const [countdownSec, setCountdownSec] = useState(DEFAULT_COUNTDOWN);
@@ -263,7 +263,7 @@ export default function BoothPage() {
               tools={[
                 { id: "layout", label: t("booth.toolLayout"), value: frameLayout, icon: <Grid2X2 size={22} strokeWidth={1.5} /> },
                 { id: "ghost", label: t("booth.toolGhost"), value: t("booth.toolOff"), icon: <Wand2 size={22} strokeWidth={1.5} /> },
-                { id: "filter", label: t("booth.toolFilter"), value: lut === "warm-film" ? t("booth.toolFilmWarm") : lut, icon: <Sparkles size={22} strokeWidth={1.5} />, active: true },
+                { id: "filter", label: t("booth.toolFilter"), value: lut === "k-booth" ? "seoul" : lut, icon: <Sparkles size={22} strokeWidth={1.5} />, active: true },
                 { id: "flip", label: t("booth.toolFlip"), value: t("booth.toolLens"), icon: <RefreshCw size={22} strokeWidth={1.5} />, onClick: flip, disabled: phase !== "ready" },
               ]}
             />

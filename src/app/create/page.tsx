@@ -87,7 +87,7 @@ export default function CreatePage() {
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const neededCount = myParticipant?.slot_count || 4;
-  const lut = settings?.lut || "warm-film";
+  const lut = settings?.lut || "k-booth";
 
   const compositeAll = useCallback(async (roomParticipants: RoomParticipant[]) => {
     if (!settings || !roomId || compositingRef.current) return;
@@ -446,7 +446,7 @@ export default function CreatePage() {
         {phase === "done" && stripUrl && (
           <motion.div key="result" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col items-center justify-center gap-5">
             <StripResult stripUrl={stripUrl} onRetake={retake} />
-            <LutPicker value={settings?.lut || "warm-film"} onChange={regrade} />
+            <LutPicker value={settings?.lut || "k-booth"} onChange={regrade} />
           </motion.div>
         )}
       </AnimatePresence>
