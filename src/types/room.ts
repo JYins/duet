@@ -1,6 +1,6 @@
 export type RoomMode = "async" | "ghost";
-export type RoomStatus = "waiting" | "ready" | "shooting" | "complete";
-export type ParticipantStatus = "joined" | "shooting" | "selecting" | "submitted";
+export type RoomStatus = "waiting" | "ready" | "shooting" | "complete" | "error";
+export type ParticipantStatus = "joined" | "shooting" | "selecting" | "submitted" | "error";
 
 export interface Room {
   id: string;
@@ -13,6 +13,8 @@ export interface Room {
   participant_count: number;
   background_id: string;
   lut_preset: string;
+  result_path: string | null;
+  completed_at: string | null;
   // legacy fields kept for backward compat
   host_photo_path: string | null;
   guest_photo_path: string | null;

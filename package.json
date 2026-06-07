@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:supabase": "node scripts/check-supabase-health.mjs",
+    "check:supabase:flow": "node scripts/check-supabase-flow.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",

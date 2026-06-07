@@ -41,6 +41,11 @@ yarn-error.log*
 CLAUDE.md
 AGENTS.md
 .claude/
+.codex/
+MEMORY.md
+graphify-out/
+.graphify/
+.graphify-cache/
 
 # typescript
 *.tsbuildinfo

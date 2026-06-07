@@ -1,38 +1,45 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Loader2, RefreshCw } from "lucide-react";
 import Image from "next/image";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
+import { Grid2X2, Loader2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
 import { useCamera } from "@/hooks/use-camera";
 import { useCountdown } from "@/hooks/use-countdown";
 import { useLocale } from "@/hooks/use-locale";
 import { useSessionId } from "@/hooks/use-session-id";
 import { captureFrame } from "@/lib/camera";
 import { generateStrip } from "@/lib/composite";
-import { getLayout } from "@/lib/composite";
-import { LUT_CSS_FILTERS } from "@/lib/lut";
-import type { LutPreset } from "@/lib/lut";
-import type { FrameLayout } from "@/lib/composite";
-import type { RoomMode, RoomParticipant } from "@/types/room";
+import { LUT_CSS_FILTERS, type LutPreset } from "@/lib/lut";
 import {
+  collectSubmittedPhotos,
   createRoom,
-  joinRoom,
-  updateRoom,
-  updateParticipant,
-  uploadPhotos,
-  getRoomUrl,
-  subscribeToParticipants,
   getParticipants,
+  getRoomUrl,
+  joinRoom,
+  markParticipantSubmitted,
+  markRoomComplete,
+  sortParticipants,
+  subscribeToRoom,
+  subscribeToParticipants,
+  uploadPhotos,
+  uploadResultStrip,
+  updateParticipant,
 } from "@/lib/rooms";
-import Viewfinder from "@/components/viewfinder";
-import CountdownOverlay from "@/components/countdown-overlay";
-import ShutterFlash from "@/components/shutter-flash";
-import ShotCounter from "@/components/shot-counter";
-import StripResult from "@/components/strip-result";
+import type { RoomMode, RoomParticipant } from "@/types/room";
+import type { CaptureShot } from "@/types/capture";
+import BoothShell from "@/components/booth-shell";
+import BottomControlDock from "@/components/bottom-control-dock";
+import CaptureStage from "@/components/capture-stage";
 import LutPicker from "@/components/lut-picker";
 import ModePicker from "@/components/mode-picker";
+import ParticipantStatusRail from "@/components/participant-status-rail";
+import PhotoStripPreview from "@/components/photo-strip-preview";
 import RoomConfig, { type RoomSettings } from "@/components/room-config";
+import ShareCard from "@/components/share-card";
+import ShotCounter from "@/components/shot-counter";
+import StripResult from "@/components/strip-result";
 import WaitingRoom from "@/components/waiting-room";
 
 const BETWEEN_SHOT_DELAY = 2000;
@@ -49,7 +56,8 @@ type Phase =
   | "done";
 
 export default function CreatePage() {
-  const { videoRef, ready, error, start, stop, flip } = useCamera();
+  const router = useRouter();
+  const { videoRef, ready, error, facing, start, stop, flip } = useCamera();
   const { count, run: runCountdown } = useCountdown(5);
   const { t } = useLocale();
   const sessionId = useSessionId();
@@ -62,166 +70,213 @@ export default function CreatePage() {
   const [roomUrl, setRoomUrl] = useState<string | null>(null);
   const [myParticipant, setMyParticipant] = useState<RoomParticipant | null>(null);
   const [participants, setParticipants] = useState<RoomParticipant[]>([]);
+  const [shots, setShots] = useState<CaptureShot[]>([]);
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [shotCount, setShotCount] = useState(0);
   const [flash, setFlash] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   const [lastCapture, setLastCapture] = useState<string | null>(null);
   const [countdownSec, setCountdownSec] = useState(5);
   const [stripUrl, setStripUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const photosRef = useRef<string[]>([]);
+  const compositingRef = useRef(false);
+  const captureRef = useRef(false);
+  const uploadRef = useRef(false);
+  const resultRef = useRef<string | null>(null);
 
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const neededCount = myParticipant?.slot_count || 4;
+  const lut = settings?.lut || "warm-film";
 
-  // 1. pick mode
-  const handleModePick = useCallback((m: RoomMode) => {
-    setMode(m);
+  const compositeAll = useCallback(async (roomParticipants: RoomParticipant[]) => {
+    if (!settings || !roomId || compositingRef.current) return;
+    if (resultRef.current) {
+      setStripUrl(resultRef.current);
+      setPhase("done");
+      return;
+    }
+    const photos = collectSubmittedPhotos(roomParticipants, settings.participantCount);
+    if (!photos) return;
+    compositingRef.current = true;
+    setPhase("compositing");
+    try {
+      const strip = await generateStrip({
+        photos,
+        layout: settings.layout,
+        lut: settings.lut,
+        grain: true,
+        vignette: true,
+      });
+      let finalUrl = strip;
+      try {
+        const uploaded = await uploadResultStrip(roomId, strip);
+        finalUrl = uploaded;
+        const completed = await markRoomComplete(roomId, uploaded);
+        finalUrl = completed?.result_path || uploaded;
+        resultRef.current = finalUrl;
+      } catch {
+        setErrorMsg(t("error.cloudSync"));
+      }
+      setStripUrl(finalUrl);
+      setPhase("done");
+    } catch {
+      setErrorMsg(t("error.composite"));
+      setPhase("waiting");
+      compositingRef.current = false;
+    }
+  }, [roomId, settings, t]);
+
+  useEffect(() => {
+    if (!roomId || (phase !== "sharing" && phase !== "waiting")) return;
+    getParticipants(roomId).then((roomParticipants) => {
+      const sorted = sortParticipants(roomParticipants);
+      setParticipants(sorted);
+      if (phase === "waiting") void compositeAll(sorted);
+    });
+    return subscribeToParticipants(roomId, (roomParticipants) => {
+      const sorted = sortParticipants(roomParticipants);
+      setParticipants(sorted);
+      if (phase === "waiting") void compositeAll(sorted);
+    });
+  }, [compositeAll, phase, roomId]);
+
+  useEffect(() => {
+    if (!roomId) return;
+    return subscribeToRoom(roomId, (room) => {
+      if (room.result_path) {
+        resultRef.current = room.result_path;
+        setStripUrl(room.result_path);
+        setPhase("done");
+      }
+    });
+  }, [roomId]);
+
+  const handleModePick = useCallback((nextMode: RoomMode) => {
+    setMode(nextMode);
     setPhase("config");
   }, []);
 
-  // 2. confirm config → create room
-  const handleConfigConfirm = useCallback(async (s: RoomSettings) => {
-    setSettings(s);
+  const handleConfigConfirm = useCallback(async (nextSettings: RoomSettings) => {
+    setSettings(nextSettings);
+    setErrorMsg(null);
     try {
       const room = await createRoom({
         mode,
-        layout: s.layout,
-        lutPreset: s.lut,
-        participantCount: s.participantCount,
-        backgroundId: s.backgroundId,
+        layout: nextSettings.layout,
+        lutPreset: nextSettings.lut,
+        participantCount: nextSettings.participantCount,
+        backgroundId: nextSettings.backgroundId,
       });
       setRoomId(room.id);
       setRoomCode(room.short_code);
       setRoomUrl(getRoomUrl(room.short_code));
+      resultRef.current = null;
 
-      // auto-join as host
-      const me = await joinRoom(room.id, sessionId, "host", true);
-      setMyParticipant(me);
-
-      setPhase("sharing");
-    } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "failed to create room");
-    }
-  }, [mode, sessionId]);
-
-  // subscribe to participants when in sharing/waiting phase
-  useEffect(() => {
-    if (!roomId || (phase !== "sharing" && phase !== "waiting")) return;
-    // initial fetch
-    getParticipants(roomId).then(setParticipants);
-    return subscribeToParticipants(roomId, (ps) => {
-      setParticipants(ps);
-      // check if all submitted
-      const allDone = ps.filter((p) => p.status === "submitted").length >= (settings?.participantCount || 2);
-      if (allDone && phase === "waiting") {
-        compositeAll(ps);
+      const host = await joinRoom(room.id, sessionId, t("booth.you"), true);
+      if (mode === "ghost") {
+        router.push(`/room/${room.short_code}`);
+        return;
       }
-    });
-  }, [roomId, phase]);
+      setMyParticipant(host);
+      setParticipants([host]);
+      setPhase("sharing");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : t("error.composite"));
+    }
+  }, [mode, router, sessionId, t]);
 
-  // host starts shooting
   const startShooting = useCallback(async () => {
     if (!myParticipant) return;
-    start("user");
     await updateParticipant(myParticipant.id, { status: "shooting" });
+    start("user");
     setPhase("shooting");
   }, [myParticipant, start]);
 
-  // shoot
   const shoot = useCallback(async () => {
-    if (!videoRef.current || !ready || !myParticipant) return;
+    if (!videoRef.current || !ready || !myParticipant || phase !== "shooting") return;
+    if (captureRef.current) return;
+    captureRef.current = true;
+    setIsCapturing(true);
+    const totalToTake = Math.max(neededCount + 2, neededCount);
+    const captured: CaptureShot[] = [];
 
-    const neededPhotos = myParticipant.slot_count;
-    // take extra for selection
-    const totalToTake = Math.max(neededPhotos, neededPhotos + 2);
+    try {
+      setShots([]);
+      setSelectedIndices([]);
+      setShotCount(0);
+      setLastCapture(null);
 
-    photosRef.current = [];
-    setShotCount(0);
-
-    for (let i = 0; i < totalToTake; i++) {
-      await runCountdown(countdownSec);
-      setFlash(true);
-      const frame = captureFrame(videoRef.current);
-      photosRef.current.push(frame);
-      setShotCount(i + 1);
-      setLastCapture(frame);
-      await sleep(100);
-      setFlash(false);
-      if (i < totalToTake - 1) {
-        await sleep(BETWEEN_SHOT_DELAY);
-        setLastCapture(null);
+      for (let i = 0; i < totalToTake; i++) {
+        await runCountdown(countdownSec);
+        setFlash(true);
+        const { raw, filtered } = captureFrame(
+          videoRef.current,
+          1080,
+          1440,
+          LUT_CSS_FILTERS[lut],
+          facing === "user",
+        );
+        const shot = { index: i, rawUrl: raw, filteredUrl: filtered, selected: i < neededCount };
+        captured.push(shot);
+        setShots([...captured]);
+        setShotCount(i + 1);
+        setLastCapture(filtered);
+        await sleep(100);
+        setFlash(false);
+        if (i < totalToTake - 1) {
+          await sleep(BETWEEN_SHOT_DELAY);
+          setLastCapture(null);
+        }
       }
-    }
 
-    stop();
-
-    // if took exactly what's needed, skip selection
-    if (totalToTake <= neededPhotos) {
-      await submitPhotos(photosRef.current.slice(0, neededPhotos));
-    } else {
+      stop();
+      await updateParticipant(myParticipant.id, { status: "selecting" });
+      setSelectedIndices(captured.slice(0, neededCount).map((shot) => shot.index));
       setPhase("selecting");
+    } catch {
+      setFlash(false);
+      setErrorMsg(t("error.capture"));
+    } finally {
+      captureRef.current = false;
+      setIsCapturing(false);
     }
-  }, [ready, videoRef, runCountdown, countdownSec, stop, myParticipant]);
-
-  // photo selection
-  const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
+  }, [countdownSec, facing, lut, myParticipant, neededCount, phase, ready, runCountdown, stop, t, videoRef]);
 
   const toggleSelect = useCallback((idx: number) => {
     setSelectedIndices((prev) => {
-      const needed = myParticipant?.slot_count || 4;
-      if (prev.includes(idx)) return prev.filter((i) => i !== idx);
-      if (prev.length >= needed) return prev;
+      if (prev.includes(idx)) return prev.filter((item) => item !== idx);
+      if (prev.length >= neededCount) return prev;
       return [...prev, idx];
     });
-  }, [myParticipant]);
+  }, [neededCount]);
 
-  const confirmSelection = useCallback(async () => {
-    const picks = selectedIndices.map((i) => photosRef.current[i]);
-    await submitPhotos(picks);
-  }, [selectedIndices]);
-
-  const submitPhotos = useCallback(async (photos: string[]) => {
-    if (!roomId || !myParticipant) return;
+  const submitPhotos = useCallback(async () => {
+    if (!roomId || !myParticipant || selectedIndices.length !== neededCount) return;
+    if (uploadRef.current) return;
+    uploadRef.current = true;
     setPhase("uploading");
+    setErrorMsg(null);
     try {
-      const urls = await uploadPhotos(roomId, myParticipant.id, photos);
-      await updateParticipant(myParticipant.id, {
-        status: "submitted",
-        photo_paths: urls,
-      });
+      const selected = selectedIndices
+        .map((idx) => shots.find((shot) => shot.index === idx)?.rawUrl)
+        .filter((src): src is string => Boolean(src));
+      if (selected.length < neededCount) {
+        throw new Error(t("error.selectPhotos"));
+      }
+      const urls = await uploadPhotos(roomId, myParticipant.id, selected);
+      await markParticipantSubmitted(myParticipant.id, urls);
       setPhase("waiting");
-    } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "upload failed");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : t("error.selectPhotos"));
+      setPhase("selecting");
+    } finally {
+      uploadRef.current = false;
     }
-  }, [roomId, myParticipant]);
-
-  // composite when all done
-  const compositeAll = useCallback(async (ps: RoomParticipant[]) => {
-    if (!settings) return;
-    setPhase("compositing");
-
-    // collect all photo urls in slot order
-    const sorted = [...ps].sort((a, b) => a.slot_start - b.slot_start);
-    const allPhotos: string[] = [];
-    for (const p of sorted) {
-      allPhotos.push(...p.photo_paths);
-    }
-
-    try {
-      const strip = await generateStrip({
-        photos: allPhotos,
-        layout: settings.layout,
-        lut: settings.lut,
-        label: undefined,
-      });
-      setStripUrl(strip);
-      setPhase("done");
-    } catch {
-      setErrorMsg("compositing failed");
-    }
-  }, [settings]);
+  }, [myParticipant, neededCount, roomId, selectedIndices, shots, t]);
 
   const retake = useCallback(() => {
+    compositingRef.current = false;
     setPhase("pick-mode");
     setSettings(null);
     setRoomId(null);
@@ -229,162 +284,172 @@ export default function CreatePage() {
     setRoomUrl(null);
     setMyParticipant(null);
     setParticipants([]);
+    setShots([]);
     setStripUrl(null);
     setSelectedIndices([]);
-    photosRef.current = [];
+    setShotCount(0);
+    setLastCapture(null);
   }, []);
 
   const regrade = useCallback(async (preset: LutPreset) => {
     if (!settings || phase !== "done") return;
-    setSettings({ ...settings, lut: preset });
-    // re-collect photos
-    const sorted = [...participants].sort((a, b) => a.slot_start - b.slot_start);
-    const allPhotos = sorted.flatMap((p) => p.photo_paths);
+    const nextSettings = { ...settings, lut: preset };
+    setSettings(nextSettings);
+    const photos = collectSubmittedPhotos(participants, settings.participantCount);
+    if (!photos) return;
     setPhase("compositing");
     const strip = await generateStrip({
-      photos: allPhotos,
+      photos,
       layout: settings.layout,
       lut: preset,
+      grain: true,
+      vignette: true,
     });
     setStripUrl(strip);
     setPhase("done");
-  }, [settings, phase, participants]);
+  }, [participants, phase, settings]);
+
+  const title = phase === "done" ? t("create.yourDuet") : t("create.title");
 
   return (
-    <main className="flex min-h-[100dvh] flex-col items-center bg-[#F5F2EA]">
-      <header className="flex w-full max-w-lg items-center justify-between px-4 pt-[max(env(safe-area-inset-top),1.5rem)] pb-3 sm:px-6 sm:pt-8">
-        <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="font-serif text-base italic text-[#2C2C2A]/40 sm:text-lg">
-          Duet
-        </motion.span>
-        <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[10px] tracking-wider text-[#D4A574] uppercase sm:text-xs">
-          {phase === "done" ? t("create.yourDuet") : t("create.title")}
-        </motion.span>
-      </header>
+    <BoothShell eyebrow={title} code={roomCode ?? undefined} step={phase === "done" ? "STEP 4 / 4" : undefined}>
+      {errorMsg && (
+        <div className="rounded-2xl border border-[#C45B4A]/20 bg-[#FFF7F4] px-4 py-3 text-center text-xs text-[#A44B3D]">
+          {errorMsg}
+        </div>
+      )}
 
-      <div className="flex flex-1 flex-col items-center justify-center px-4 pb-[max(env(safe-area-inset-bottom),2rem)] sm:px-6">
-        {errorMsg && (
-          <div className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-xs text-red-600">{errorMsg}</div>
+      <AnimatePresence mode="wait">
+        {phase === "pick-mode" && (
+          <motion.div key="mode" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            <ModePicker onSelect={handleModePick} />
+          </motion.div>
         )}
 
-        <AnimatePresence mode="wait">
-          {/* pick mode */}
-          {phase === "pick-mode" && (
-            <motion.div key="mode" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <ModePicker onSelect={handleModePick} />
-            </motion.div>
-          )}
+        {phase === "config" && (
+          <motion.div key="config" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            <RoomConfig mode={mode} onConfirm={handleConfigConfirm} />
+          </motion.div>
+        )}
 
-          {/* config */}
-          {phase === "config" && (
-            <motion.div key="config" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <RoomConfig mode={mode} onConfirm={handleConfigConfirm} />
-            </motion.div>
-          )}
-
-          {/* sharing + waiting for participants */}
-          {(phase === "sharing" || phase === "waiting") && roomCode && roomUrl && (
-            <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        {(phase === "sharing" || phase === "waiting") && roomCode && roomUrl && (
+          <motion.div key="waiting" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+            <ParticipantStatusRail
+              code={roomCode}
+              participants={participants}
+              expectedCount={settings?.participantCount || 2}
+              currentUserId={sessionId}
+            />
+            {phase === "sharing" ? (
+              <div className="space-y-4">
+                <ShareCard url={roomUrl} code={roomCode} />
+                <button
+                  type="button"
+                  onClick={startShooting}
+                  className="w-full rounded-full bg-[#2C2C2A] px-6 py-3 text-[13px] font-medium text-[#F5F2EA]"
+                >
+                  {t("waiting.startShooting")}
+                </button>
+              </div>
+            ) : (
               <WaitingRoom
                 roomUrl={roomUrl}
                 roomCode={roomCode}
                 participants={participants}
                 expectedCount={settings?.participantCount || 2}
                 currentUserId={sessionId}
-                onStartShooting={phase === "sharing" ? startShooting : undefined}
               />
-            </motion.div>
-          )}
+            )}
+          </motion.div>
+        )}
 
-          {/* shooting */}
-          {phase === "shooting" && (
-            <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="flex flex-col items-center gap-4">
-              <div className="relative">
-                <Viewfinder ref={videoRef} cssFilter={LUT_CSS_FILTERS[settings?.lut || "warm-film"]} />
-                <CountdownOverlay count={count} />
-                <ShutterFlash flash={flash} />
-                {!ready && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-[#2C2C2A]/50 backdrop-blur-sm">
-                    <Loader2 size={20} className="animate-spin text-white/80" />
+        {phase === "shooting" && (
+          <motion.div key="camera" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col gap-4">
+            <ParticipantStatusRail
+              code={roomCode ?? undefined}
+              participants={participants}
+              expectedCount={settings?.participantCount || 2}
+              currentUserId={sessionId}
+            />
+            <CaptureStage
+              ref={videoRef}
+              ready={ready}
+              error={error}
+              mirrored={facing === "user"}
+              cssFilter={LUT_CSS_FILTERS[lut]}
+              count={count}
+              flash={flash}
+              hint={t("booth.tapToShoot")}
+              lastCapture={
+                lastCapture ? (
+                  <div className="absolute bottom-4 right-4 z-10 h-20 w-[3.75rem] overflow-hidden rounded-xl border-2 border-white/85 shadow-lg">
+                    <Image src={lastCapture} alt={t("booth.lastCapture")} fill className="object-cover" unoptimized />
                   </div>
-                )}
-                <AnimatePresence>
-                  {lastCapture && (
-                    <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="absolute bottom-3 right-3 h-16 w-12 overflow-hidden rounded-md border-2 border-white/80 shadow-lg">
-                      <Image src={lastCapture} alt="last" fill className="object-cover" unoptimized />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+                ) : null
+              }
+            />
+            <ShotCounter total={Math.max(neededCount + 2, neededCount)} current={shotCount} />
+            <div className="flex justify-center text-[11px] text-[#6F6A61]">
+              <label className="flex items-center gap-2">
+                {t("booth.countdown")}
+                <select
+                  value={countdownSec}
+                  onChange={(event) => setCountdownSec(Number(event.target.value))}
+                  className="rounded-full border border-[#DDD9D0] bg-[#FDFCF9] px-3 py-1.5 text-[11px] text-[#2C2C2A]"
+                >
+                  <option value={3}>3s</option>
+                  <option value={5}>5s</option>
+                  <option value={10}>10s</option>
+                </select>
+              </label>
+            </div>
+            <BottomControlDock
+              onShutter={shoot}
+              shutterDisabled={!ready || isCapturing}
+              tools={[
+                { id: "layout", label: t("booth.toolLayout"), value: settings?.layout, icon: <Grid2X2 size={22} strokeWidth={1.5} /> },
+                { id: "ghost", label: mode === "ghost" ? t("booth.toolGhost") : t("booth.toolTogether"), value: mode === "ghost" ? t("ghost.on") : t("shell.room"), icon: <Wand2 size={22} strokeWidth={1.5} />, active: mode === "ghost" },
+                { id: "filter", label: t("booth.toolFilter"), value: lut, icon: <Sparkles size={22} strokeWidth={1.5} />, active: true },
+                { id: "flip", label: t("booth.toolFlip"), value: t("booth.toolLens"), icon: <RefreshCw size={22} strokeWidth={1.5} />, onClick: flip },
+              ]}
+            />
+          </motion.div>
+        )}
 
-              <ShotCounter total={myParticipant ? myParticipant.slot_count + 2 : 4} current={shotCount} />
+        {phase === "selecting" && (
+          <motion.div key="select" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col items-center justify-center gap-5">
+            <div className="text-center">
+              <p className="font-serif text-2xl italic text-[#2C2C2A]">{t("booth.selectPhotos")}</p>
+              <p className="mt-1 text-xs text-[#8A8780]">{selectedIndices.length}/{neededCount}</p>
+            </div>
+            <PhotoStripPreview shots={shots} selectedIndices={selectedIndices} onToggle={toggleSelect} neededCount={neededCount} />
+            <button
+              type="button"
+              onClick={submitPhotos}
+              disabled={selectedIndices.length !== neededCount}
+              className="rounded-full bg-[#2C2C2A] px-7 py-3 text-[13px] font-medium text-[#F5F2EA] disabled:opacity-30"
+            >
+              {t("booth.confirmSelection")}
+            </button>
+          </motion.div>
+        )}
 
-              <div className="flex items-center gap-4 text-[10px] text-[#8A8780]">
-                <label className="flex items-center gap-1.5">
-                  {t("booth.countdown")}
-                  <select value={countdownSec} onChange={(e) => setCountdownSec(Number(e.target.value))} className="rounded-full border border-[#DDD9D0] bg-transparent px-2 py-1 text-[10px] text-[#2C2C2A] focus:outline-none">
-                    <option value={3}>3s</option>
-                    <option value={5}>5s</option>
-                    <option value={10}>10s</option>
-                  </select>
-                </label>
-              </div>
+        {(phase === "uploading" || phase === "compositing") && (
+          <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col items-center justify-center gap-3">
+            <Loader2 size={22} className="animate-spin text-[#8A8780]" />
+            <p className="text-xs tracking-wide text-[#8A8780]">
+              {phase === "uploading" ? t("room.uploading") : t("booth.compositing")}
+            </p>
+          </motion.div>
+        )}
 
-              <div className="flex items-center gap-5">
-                <button onClick={flip} disabled={shotCount > 0} className="flex h-9 w-9 items-center justify-center rounded-full border border-[#DDD9D0] text-[#2C2C2A]/60 disabled:opacity-30 sm:h-10 sm:w-10">
-                  <RefreshCw size={15} />
-                </button>
-                <button onClick={shoot} disabled={!ready || shotCount > 0} className="group relative flex h-14 w-14 items-center justify-center rounded-full bg-[#2C2C2A] transition-all hover:scale-105 active:scale-95 disabled:opacity-30 sm:h-16 sm:w-16">
-                  <span className="absolute inset-0 rounded-full border-2 border-[#2C2C2A]/20 group-hover:border-[#D4A574]/40" />
-                  <Camera size={18} className="text-[#F5F2EA]" />
-                </button>
-                <div className="h-9 w-9 sm:h-10 sm:w-10" />
-              </div>
-            </motion.div>
-          )}
-
-          {/* selecting */}
-          {phase === "selecting" && (
-            <motion.div key="select" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-5">
-              <p className="text-xs tracking-wide text-[#8A8780]">
-                {t("booth.selectPhotos")} ({selectedIndices.length}/{myParticipant?.slot_count || 4})
-              </p>
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
-                {photosRef.current.map((src, i) => {
-                  const selIdx = selectedIndices.indexOf(i);
-                  const isSelected = selIdx !== -1;
-                  return (
-                    <button key={i} onClick={() => toggleSelect(i)} className={`relative aspect-[3/4] w-16 overflow-hidden rounded-md border-2 transition-all sm:w-20 ${isSelected ? "border-[#2C2C2A] shadow-sm" : "border-transparent opacity-50 hover:opacity-100"}`}>
-                      <Image src={src} alt={`${i}`} fill className="object-cover" unoptimized />
-                      {isSelected && <div className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#2C2C2A] text-[9px] font-medium text-white">{selIdx + 1}</div>}
-                    </button>
-                  );
-                })}
-              </div>
-              <button onClick={confirmSelection} disabled={selectedIndices.length !== (myParticipant?.slot_count || 4)} className="rounded-full bg-[#2C2C2A] px-6 py-2.5 text-xs tracking-wide text-[#F5F2EA] disabled:opacity-30">
-                {t("booth.confirmSelection")}
-              </button>
-            </motion.div>
-          )}
-
-          {/* uploading / compositing */}
-          {(phase === "uploading" || phase === "compositing") && (
-            <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-3">
-              <Loader2 size={20} className="animate-spin text-[#8A8780]" />
-              <p className="text-xs tracking-wide text-[#8A8780]">
-                {phase === "uploading" ? t("room.uploading") : t("booth.compositing")}
-              </p>
-            </motion.div>
-          )}
-
-          {/* done */}
-          {phase === "done" && stripUrl && (
-            <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-5">
-              <StripResult stripUrl={stripUrl} onRetake={retake} />
-              <LutPicker value={settings?.lut || "warm-film"} onChange={regrade} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </main>
+        {phase === "done" && stripUrl && (
+          <motion.div key="result" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col items-center justify-center gap-5">
+            <StripResult stripUrl={stripUrl} onRetake={retake} />
+            <LutPicker value={settings?.lut || "warm-film"} onChange={regrade} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </BoothShell>
   );
 }

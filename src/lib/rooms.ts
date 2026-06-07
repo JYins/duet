@@ -27,6 +27,10 @@ export interface CreateRoomOpts {
 export async function createRoom(opts: CreateRoomOpts): Promise<Room> {
   const supabase = getSupabase();
   const shortCode = generateShortCode();
+  const layout = getLayout(opts.layout);
+  const participantCount = opts.mode === "ghost"
+    ? 2
+    : Math.max(1, Math.min(opts.participantCount || 2, layout.count));
 
   const { data, error } = await supabase
     .from("rooms")
@@ -35,13 +39,14 @@ export async function createRoom(opts: CreateRoomOpts): Promise<Room> {
       mode: opts.mode,
       layout: opts.layout,
       lut_preset: opts.lutPreset || "warm-film",
-      participant_count: opts.participantCount || 2,
+      participant_count: participantCount,
       background_id: opts.backgroundId || "cream",
       status: "waiting",
     })
     .select()
     .single();
 
+  if (error?.code === "23505") return createRoom(opts);
   if (error) throw new Error(`failed to create room: ${error.message}`);
   return data as Room;
 }
@@ -59,11 +64,38 @@ export async function findRoom(shortCode: string): Promise<Room | null> {
 
 export async function updateRoom(
   id: string,
-  updates: Partial<Pick<Room, "status" | "lut_preset" | "layout">>,
+  updates: Partial<Pick<Room, "status" | "lut_preset" | "layout" | "result_path" | "completed_at">>,
 ): Promise<void> {
   const supabase = getSupabase();
   const { error } = await supabase.from("rooms").update(updates).eq("id", id);
   if (error) throw new Error(`failed to update room: ${error.message}`);
+}
+
+export async function markRoomComplete(id: string, resultPath?: string): Promise<Room | null> {
+  const supabase = getSupabase();
+  const updates: Partial<Pick<Room, "status" | "result_path" | "completed_at">> = {
+    status: "complete",
+    completed_at: new Date().toISOString(),
+  };
+  if (resultPath) updates.result_path = resultPath;
+
+  const { data, error } = await supabase
+    .from("rooms")
+    .update(updates)
+    .eq("id", id)
+    .is("result_path", null)
+    .select()
+    .maybeSingle();
+
+  if (!error && data) return data as Room;
+  if (error) throw new Error(`failed to complete room: ${error.message}`);
+
+  const { data: existing } = await supabase
+    .from("rooms")
+    .select()
+    .eq("id", id)
+    .maybeSingle();
+  return (existing as Room | null) || null;
 }
 
 export function subscribeToRoom(roomId: string, callback: (room: Room) => void) {
@@ -88,65 +120,32 @@ export async function joinRoom(
   displayName: string,
   isHost = false,
 ): Promise<RoomParticipant> {
+  return claimParticipantSlot(roomId, userId, displayName, isHost);
+}
+
+export async function claimParticipantSlot(
+  roomId: string,
+  userId: string,
+  displayName: string,
+  isHost = false,
+): Promise<RoomParticipant> {
   const supabase = getSupabase();
 
-  // check if already joined
-  const { data: existing } = await supabase
-    .from("room_participants")
-    .select()
-    .eq("room_id", roomId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (existing) return existing as RoomParticipant;
-
-  // get room to calculate slots
-  const { data: room } = await supabase
-    .from("rooms")
-    .select()
-    .eq("id", roomId)
+  const { data: claimed, error: claimError } = await supabase
+    .rpc("claim_participant_slot_v1", {
+      p_room_id: roomId,
+      p_user_id: userId,
+      p_display_name: displayName,
+      p_is_host: isHost,
+    })
     .single();
 
-  if (!room) throw new Error("room not found");
-
-  const layout = getLayout(room.layout as FrameLayout);
-  const totalSlots = layout.count;
-  const pCount = room.participant_count;
-
-  // count existing participants
-  const { count: currentCount } = await supabase
-    .from("room_participants")
-    .select("*", { count: "exact", head: true })
-    .eq("room_id", roomId);
-
-  const participantIndex = currentCount || 0;
-  if (participantIndex >= pCount) throw new Error("room is full");
-
-  const slotsPerPerson = Math.floor(totalSlots / pCount);
-  const extraSlots = totalSlots - slotsPerPerson * pCount;
-  // host (index 0) gets extra slots
-  const slotCount = participantIndex === 0 ? slotsPerPerson + extraSlots : slotsPerPerson;
-  let slotStart = 0;
-  for (let i = 0; i < participantIndex; i++) {
-    slotStart += i === 0 ? slotsPerPerson + extraSlots : slotsPerPerson;
+  if (claimed && !claimError) return claimed as RoomParticipant;
+  if (claimError) {
+    throw new Error(normalizeJoinError(claimError.message));
   }
 
-  const { data, error } = await supabase
-    .from("room_participants")
-    .insert({
-      room_id: roomId,
-      user_id: userId,
-      display_name: displayName,
-      role: isHost ? "host" : "participant",
-      slot_start: slotStart,
-      slot_count: slotCount,
-      status: "joined",
-    })
-    .select()
-    .single();
-
-  if (error) throw new Error(`failed to join: ${error.message}`);
-  return data as RoomParticipant;
+  throw new Error("failed to join: no participant slot was returned");
 }
 
 export async function getParticipants(roomId: string): Promise<RoomParticipant[]> {
@@ -170,6 +169,55 @@ export async function updateParticipant(
     .update(updates)
     .eq("id", participantId);
   if (error) throw new Error(error.message);
+}
+
+export async function markParticipantSubmitted(
+  participantId: string,
+  photoPaths: string[],
+): Promise<void> {
+  await updateParticipant(participantId, {
+    status: "submitted",
+    photo_paths: photoPaths,
+  });
+}
+
+export function sortParticipants(participants: RoomParticipant[]): RoomParticipant[] {
+  return [...participants].sort((a, b) => {
+    if (a.slot_start !== b.slot_start) return a.slot_start - b.slot_start;
+    return a.created_at.localeCompare(b.created_at);
+  });
+}
+
+export function collectSubmittedPhotos(
+  participants: RoomParticipant[],
+  expectedCount: number,
+): string[] | null {
+  const submitted = sortParticipants(participants).filter((p) => p.status === "submitted");
+  if (submitted.length < expectedCount) return null;
+  const photos: string[] = [];
+  for (const participant of submitted) {
+    const slotCount = Math.max(0, participant.slot_count || 0);
+    const ownedPhotos = (participant.photo_paths || []).slice(0, slotCount);
+    if (ownedPhotos.length < slotCount) return null;
+    photos.push(...ownedPhotos);
+  }
+  return photos.length > 0 ? photos : null;
+}
+
+export function collectGhostCutouts(
+  participants: RoomParticipant[],
+  requiredFrames: number,
+): { host: string[]; guest: string[] } | null {
+  const sorted = sortParticipants(participants).filter((p) => p.status === "submitted");
+  const host = sorted.find((p) => p.role === "host") || sorted[0];
+  const guest = sorted.find((p) => p.id !== host?.id);
+  if (!host || !guest) return null;
+
+  const hostPhotos = (host.photo_paths || []).slice(0, requiredFrames);
+  const guestPhotos = (guest.photo_paths || []).slice(0, requiredFrames);
+  if (hostPhotos.length < requiredFrames || guestPhotos.length < requiredFrames) return null;
+
+  return { host: hostPhotos, guest: guestPhotos };
 }
 
 export function subscribeToParticipants(
@@ -220,13 +268,14 @@ export async function uploadPhoto(
   dataUrl: string,
 ): Promise<string> {
   const supabase = getSupabase();
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const path = `${roomId}/${participantId}-${index}.png`;
+  const blob = await dataUrlToBlob(dataUrl);
+  const contentType = getDataUrlContentType(dataUrl, blob.type || "image/png");
+  const extension = contentType === "image/jpeg" ? "jpg" : "png";
+  const path = `${roomId}/${participantId}-${index}.${extension}`;
 
   const { error } = await supabase.storage
     .from("cutouts")
-    .upload(path, blob, { contentType: "image/png", upsert: true });
+    .upload(path, blob, { contentType, upsert: true });
 
   if (error) throw new Error(`upload failed: ${error.message}`);
 
@@ -250,6 +299,23 @@ export async function uploadPhotos(
   return urls;
 }
 
+export async function uploadResultStrip(roomId: string, dataUrl: string): Promise<string> {
+  const supabase = getSupabase();
+  const blob = await dataUrlToBlob(dataUrl);
+  const contentType = getDataUrlContentType(dataUrl, blob.type || "image/png");
+  const extension = contentType === "image/jpeg" ? "jpg" : "png";
+  const path = `${roomId}/strip-${Date.now()}.${extension}`;
+
+  const { error } = await supabase.storage
+    .from("results")
+    .upload(path, blob, { contentType, upsert: false });
+
+  if (error) throw new Error(`result upload failed: ${error.message}`);
+
+  const { data } = supabase.storage.from("results").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 // keep legacy function for backward compat
 export async function uploadAllCutouts(
   roomId: string,
@@ -264,4 +330,22 @@ export function getRoomUrl(shortCode: string): string {
     ? window.location.origin
     : "https://duet.vercel.app";
   return `${base}/room/${shortCode}`;
+}
+
+async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  const res = await fetch(dataUrl);
+  return res.blob();
+}
+
+function getDataUrlContentType(dataUrl: string, fallback: string): string {
+  const match = dataUrl.match(/^data:([^;,]+)[;,]/);
+  return match?.[1] || fallback;
+}
+
+function normalizeJoinError(message: string): string {
+  if (/claim_participant_slot_v1|schema cache|function/i.test(message)) return "backend migration is missing";
+  if (/room is full/i.test(message)) return "room is full";
+  if (/room not found/i.test(message)) return "room not found";
+  if (/idx_room_participants_one_host|duplicate key/i.test(message)) return "host already joined";
+  return `failed to join: ${message}`;
 }

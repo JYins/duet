@@ -1,9 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, Clock, Camera } from "lucide-react";
+import { AlertTriangle, Camera, Check, Clock } from "lucide-react";
 import { useLocale } from "@/hooks/use-locale";
-import type { RoomParticipant } from "@/types/room";
+import type { ParticipantStatus, RoomParticipant } from "@/types/room";
 import ShareCard from "./share-card";
 
 interface WaitingRoomProps {
@@ -20,14 +20,16 @@ const STATUS_ICON = {
   shooting: Camera,
   selecting: Camera,
   submitted: Check,
-};
+  error: AlertTriangle,
+} satisfies Record<ParticipantStatus, typeof Clock>;
 
 const STATUS_COLOR = {
   joined: "text-[#8A8780]",
   shooting: "text-[#D4A574]",
   selecting: "text-[#D4A574]",
   submitted: "text-[#6B8E6B]",
-};
+  error: "text-[#B85C5C]",
+} satisfies Record<ParticipantStatus, string>;
 
 export default function WaitingRoom({
   roomUrl,
@@ -51,31 +53,31 @@ export default function WaitingRoom({
     >
       <ShareCard url={roomUrl} code={roomCode} />
 
-      {/* participant list */}
-      <div className="flex flex-col items-center gap-2 w-full max-w-xs">
-        <span className="text-[10px] tracking-[0.12em] text-[#B5B2AB] uppercase">
+      <div className="flex w-full max-w-xs flex-col items-center gap-2">
+        <span className="text-[10px] uppercase tracking-[0.12em] text-[#B5B2AB]">
           {t("waiting.participants")} ({participants.length}/{expectedCount})
         </span>
 
-        <div className="flex flex-col gap-1.5 w-full">
-          {participants.map((p) => {
-            const Icon = STATUS_ICON[p.status];
-            const color = STATUS_COLOR[p.status];
-            const isMe = p.user_id === currentUserId;
+        <div className="flex w-full flex-col gap-1.5">
+          {participants.map((participant) => {
+            const Icon = STATUS_ICON[participant.status];
+            const color = STATUS_COLOR[participant.status];
+            const isMe = participant.user_id === currentUserId;
+
             return (
               <div
-                key={p.id}
+                key={participant.id}
                 className={`flex items-center gap-3 rounded-lg px-4 py-2.5 ${
-                  isMe ? "bg-[#FDFCF9] border border-[#D4A574]/20" : "bg-[#FDFCF9]/50"
+                  isMe ? "border border-[#D4A574]/20 bg-[#FDFCF9]" : "bg-[#FDFCF9]/50"
                 }`}
               >
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#EDE9DF] text-[11px] font-medium text-[#2C2C2A]">
-                  {(p.display_name || "?")[0].toUpperCase()}
+                  {(participant.display_name || "?")[0].toUpperCase()}
                 </div>
                 <span className="flex-1 text-xs text-[#2C2C2A]">
-                  {p.display_name || "anonymous"}
-                  {isMe && <span className="ml-1 text-[#D4A574]">·</span>}
-                  {p.role === "host" && (
+                  {participant.display_name || "anonymous"}
+                  {isMe && <span className="ml-1 text-[#D4A574]">you</span>}
+                  {participant.role === "host" && (
                     <span className="ml-1 text-[9px] text-[#8A8780]">host</span>
                   )}
                 </span>
@@ -84,7 +86,6 @@ export default function WaitingRoom({
             );
           })}
 
-          {/* empty slots */}
           {Array.from({ length: Math.max(0, expectedCount - participants.length) }).map((_, i) => (
             <div key={`empty-${i}`} className="flex items-center gap-3 rounded-lg px-4 py-2.5 opacity-30">
               <div className="h-7 w-7 rounded-full border border-dashed border-[#DDD9D0]" />
@@ -94,7 +95,6 @@ export default function WaitingRoom({
         </div>
       </div>
 
-      {/* progress */}
       <div className="flex items-center gap-2">
         {allSubmitted ? (
           <span className="text-xs tracking-wide text-[#6B8E6B]">{t("waiting.allSubmitted")}</span>

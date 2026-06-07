@@ -26,16 +26,13 @@ export default function BgPicker({ value, onChange }: BgPickerProps) {
             aria-label={bg.label}
             title={bg.label}
           >
-            {bg.url ? (
-              <img
-                src={bg.url}
-                alt={bg.label}
-                className="h-full w-full object-cover"
-                loading="lazy"
-              />
-            ) : (
-              <div className="h-full w-full" style={{ backgroundColor: bg.color }} />
-            )}
+            <div
+              className="h-full w-full bg-cover bg-center"
+              style={{
+                backgroundColor: bg.color,
+                backgroundImage: bg.url ? `url(${bg.url})` : undefined,
+              }}
+            />
           </motion.button>
         );
       })}

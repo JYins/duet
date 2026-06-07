@@ -1,13 +1,5 @@
-// composites raw photos into styled frame layouts
-// with LUT color grading, grain, vignette, decorations, and labels
-//
-// approach: raw photos go directly into frames (no segmentation).
-// LUT applied to each photo. this matches real korean photo booths.
-
+import { applyGrain, applyPaperTexture, applyVignette } from "./effects";
 import { applyLut, getLutByPreset, type LutPreset } from "./lut";
-import { applyGrain, applyVignette } from "./effects";
-
-// ---- layouts ----
 
 export type FrameLayout = "1x4" | "2x2" | "1x3" | "2x3" | "2x4" | "3x3";
 
@@ -21,20 +13,24 @@ interface LayoutConfig {
 
 export function getLayout(layout: FrameLayout): LayoutConfig {
   switch (layout) {
-    case "2x2": return { cols: 2, rows: 2, frameW: 380, frameH: 506, count: 4 };
+    case "2x2": return { cols: 2, rows: 2, frameW: 360, frameH: 480, count: 4 };
     case "1x3": return { cols: 1, rows: 3, frameW: 540, frameH: 720, count: 3 };
-    case "2x3": return { cols: 2, rows: 3, frameW: 340, frameH: 453, count: 6 };
-    case "2x4": return { cols: 2, rows: 4, frameW: 380, frameH: 506, count: 8 };
-    case "3x3": return { cols: 3, rows: 3, frameW: 260, frameH: 346, count: 9 };
-    default:    return { cols: 1, rows: 4, frameW: 540, frameH: 405, count: 4 };
+    case "2x3": return { cols: 2, rows: 3, frameW: 320, frameH: 426, count: 6 };
+    case "2x4": return { cols: 2, rows: 4, frameW: 320, frameH: 426, count: 8 };
+    case "3x3": return { cols: 3, rows: 3, frameW: 248, frameH: 330, count: 9 };
+    default: return { cols: 1, rows: 4, frameW: 504, frameH: 672, count: 4 };
   }
 }
 
-const PAD = 28;
-const GAP = 10;
-const CORNER_R = 4;
+export const STRIP_PAD = 30;
+export const STRIP_GAP = 12;
+export const PHOTO_MAT = 8;
+export const PHOTO_CORNER_R = 7;
+export const PHOTO_IMAGE_R = 5;
+export const PAPER_CORNER_R = 12;
 
-// ---- helpers ----
+const INK = "#282522";
+const MUTED_INK = "#A9A49A";
 
 export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -48,7 +44,11 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
 
 export function roundRect(
   ctx: CanvasRenderingContext2D,
-  x: number, y: number, w: number, h: number, r: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
 ) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -63,15 +63,20 @@ export function roundRect(
   ctx.closePath();
 }
 
-// cover-fit image into a rectangle
-function drawCover(
+export function drawCover(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
-  x: number, y: number, w: number, h: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
 ) {
   const imgRatio = img.width / img.height;
   const frameRatio = w / h;
-  let sx = 0, sy = 0, sw = img.width, sh = img.height;
+  let sx = 0;
+  let sy = 0;
+  let sw = img.width;
+  let sh = img.height;
 
   if (imgRatio > frameRatio) {
     sw = img.height * frameRatio;
@@ -84,11 +89,119 @@ function drawCover(
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
-// ---- main ----
+export function drawPaperBase(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  color: string,
+) {
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, w, h);
+
+  const glow = ctx.createLinearGradient(0, 0, w, h);
+  glow.addColorStop(0, "rgba(255,255,255,0.72)");
+  glow.addColorStop(0.48, "rgba(255,255,255,0)");
+  glow.addColorStop(1, "rgba(114,96,74,0.055)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+}
+
+export function drawFrameFinish(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const sheen = ctx.createLinearGradient(x, y, x, y + h);
+  sheen.addColorStop(0, "rgba(255,255,255,0.12)");
+  sheen.addColorStop(0.58, "rgba(255,255,255,0)");
+  sheen.addColorStop(1, "rgba(34,28,22,0.075)");
+  ctx.fillStyle = sheen;
+  roundRect(ctx, x, y, w, h, PHOTO_CORNER_R);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(38,35,31,0.12)";
+  ctx.lineWidth = 1;
+  roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, PHOTO_CORNER_R);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.38)";
+  ctx.lineWidth = 3;
+  roundRect(ctx, x + 2, y + 2, w - 4, h - 4, PHOTO_CORNER_R - 2);
+  ctx.stroke();
+}
+
+export function getPhotoImageRect(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  return {
+    x: x + PHOTO_MAT,
+    y: y + PHOTO_MAT,
+    w: w - PHOTO_MAT * 2,
+    h: h - PHOTO_MAT * 2,
+  };
+}
+
+export function drawPhotoMount(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const mat = ctx.createLinearGradient(x, y, x + w, y + h);
+  mat.addColorStop(0, "#FFFEFA");
+  mat.addColorStop(0.62, "#F8F2E8");
+  mat.addColorStop(1, "#EFE6D8");
+  ctx.fillStyle = mat;
+  roundRect(ctx, x, y, w, h, PHOTO_CORNER_R);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.72)";
+  ctx.lineWidth = 2;
+  roundRect(ctx, x + 2, y + 2, w - 4, h - 4, PHOTO_CORNER_R - 2);
+  ctx.stroke();
+
+  const inner = getPhotoImageRect(x, y, w, h);
+  ctx.strokeStyle = "rgba(52,45,38,0.08)";
+  ctx.lineWidth = 1;
+  roundRect(ctx, inner.x - 0.5, inner.y - 0.5, inner.w + 1, inner.h + 1, PHOTO_IMAGE_R + 1);
+  ctx.stroke();
+}
+
+export function drawStripStamp(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  y: number,
+  stampH: number,
+  paperColor: string,
+  label?: string,
+  date?: string,
+) {
+  ctx.fillStyle = paperColor;
+  ctx.fillRect(0, y, w, stampH);
+
+  ctx.fillStyle = INK;
+  ctx.textAlign = "center";
+  ctx.font = "600 16px Georgia, 'Times New Roman', serif";
+  ctx.fillText(label?.trim() || "DUET STUDIO", w / 2, y + 25, w - STRIP_PAD * 2);
+
+  ctx.fillStyle = MUTED_INK;
+  ctx.font = "10px Inter, Arial, sans-serif";
+  ctx.fillText(`${formatDate(date)} / TWO-PERSON PHOTOBOOTH`, w / 2, y + 45, w - STRIP_PAD * 2);
+
+  ctx.fillStyle = "rgba(40,37,34,0.38)";
+  ctx.font = "8px Inter, Arial, sans-serif";
+  ctx.fillText("FRAMED IN DUET", w / 2, y + stampH - 14, w - STRIP_PAD * 2);
+}
 
 export interface CompositeOptions {
-  photos: string[];        // raw photo data urls
-  stripColor?: string;     // paper/border color
+  photos: string[];
+  stripColor?: string;
   layout?: FrameLayout;
   lut?: LutPreset;
   grain?: boolean;
@@ -100,7 +213,7 @@ export interface CompositeOptions {
 export async function generateStrip(opts: CompositeOptions): Promise<string> {
   const {
     photos,
-    stripColor = "#FDFCF9",
+    stripColor = "#FBF7EF",
     layout = "1x4",
     lut = "warm-film",
     grain = true,
@@ -110,103 +223,88 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   } = opts;
 
   const cfg = getLayout(layout);
-  const count = Math.min(photos.length, cfg.count);
+  if (photos.length < cfg.count) {
+    throw new Error(`not enough photos for ${layout}: expected ${cfg.count}, got ${photos.length}`);
+  }
 
-  const gridW = cfg.cols * cfg.frameW + (cfg.cols - 1) * GAP;
-  const gridH = cfg.rows * cfg.frameH + (cfg.rows - 1) * GAP;
-  const STRIP_W = PAD * 2 + gridW;
-  const STRIP_H = PAD * 2 + gridH;
-  const stampH = label ? 76 : 48;
-  const totalH = STRIP_H + stampH;
+  const gridW = cfg.cols * cfg.frameW + (cfg.cols - 1) * STRIP_GAP;
+  const gridH = cfg.rows * cfg.frameH + (cfg.rows - 1) * STRIP_GAP;
+  const stripW = STRIP_PAD * 2 + gridW;
+  const stripH = STRIP_PAD * 2 + gridH;
+  const stampH = 72;
+  const totalH = stripH + stampH;
 
   const canvas = document.createElement("canvas");
-  canvas.width = STRIP_W;
+  canvas.width = stripW;
   canvas.height = totalH;
   const ctx = canvas.getContext("2d")!;
 
-  // paper fill
-  ctx.fillStyle = stripColor;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawPaperBase(ctx, canvas.width, canvas.height, stripColor);
 
-  // draw each photo into its frame
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < cfg.count; i++) {
     const col = i % cfg.cols;
     const row = Math.floor(i / cfg.cols);
-    const x = PAD + col * (cfg.frameW + GAP);
-    const y = PAD + row * (cfg.frameH + GAP);
+    const x = STRIP_PAD + col * (cfg.frameW + STRIP_GAP);
+    const y = STRIP_PAD + row * (cfg.frameH + STRIP_GAP);
+    const photo = getPhotoImageRect(x, y, cfg.frameW, cfg.frameH);
+
+    drawPhotoMount(ctx, x, y, cfg.frameW, cfg.frameH);
 
     ctx.save();
-    roundRect(ctx, x, y, cfg.frameW, cfg.frameH, CORNER_R);
+    roundRect(ctx, photo.x, photo.y, photo.w, photo.h, PHOTO_IMAGE_R);
     ctx.clip();
 
-    // draw raw photo — cover fit
-    try {
-      const img = await loadImage(photos[i]);
-      drawCover(ctx, img, x, y, cfg.frameW, cfg.frameH);
-    } catch {
-      // photo failed to load, leave as strip color
-      ctx.fillStyle = "#EDE9DF";
-      ctx.fillRect(x, y, cfg.frameW, cfg.frameH);
-    }
+    const img = await loadImage(photos[i]);
+    drawCover(ctx, img, photo.x, photo.y, photo.w, photo.h);
 
     ctx.restore();
-
-    // subtle frame border
-    ctx.save();
-    roundRect(ctx, x, y, cfg.frameW, cfg.frameH, CORNER_R);
-    ctx.strokeStyle = "rgba(44, 44, 42, 0.06)";
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
-    ctx.restore();
+    drawFrameFinish(ctx, x, y, cfg.frameW, cfg.frameH);
   }
 
-  // ---- LUT color grading on photo area ----
   if (lut !== "none") {
-    const lutData = getLutByPreset(lut);
-    applyLut(ctx, STRIP_W, STRIP_H, lutData, 0.8);
+    applyLut(ctx, stripW, stripH, getLutByPreset(lut), 0.82);
   }
+  if (grain) applyGrain(ctx, stripW, stripH, 0.026);
+  if (vignette) applyVignette(ctx, stripW, stripH, 0.10);
 
-  // grain + vignette
-  if (grain) applyGrain(ctx, STRIP_W, STRIP_H, 0.035);
-  if (vignette) applyVignette(ctx, STRIP_W, STRIP_H, 0.15);
+  drawStripStamp(ctx, canvas.width, stripH, stampH, stripColor, label, date);
+  applyPaperTexture(ctx, canvas.width, canvas.height, 0.012);
 
-  // clean stamp area
-  ctx.fillStyle = stripColor;
-  ctx.fillRect(0, STRIP_H, canvas.width, stampH);
-
-  // custom label
-  if (label) {
-    ctx.fillStyle = "#2C2C2A";
-    ctx.font = "italic 16px Georgia, 'Times New Roman', serif";
-    ctx.textAlign = "center";
-    ctx.fillText(label, canvas.width / 2, STRIP_H + 28, STRIP_W - PAD * 2);
-  }
-
-  // date + brand
-  ctx.fillStyle = "#B5B2AB";
-  ctx.font = "italic 10px Georgia, 'Times New Roman', serif";
-  ctx.textAlign = "center";
-  const stampY = label ? STRIP_H + 48 : STRIP_H + 26;
-  ctx.fillText(`Duet  ·  ${date || formatDate()}`, canvas.width / 2, stampY);
-
-  // outer border
-  ctx.strokeStyle = "rgba(44, 44, 42, 0.04)";
-  ctx.lineWidth = 0.5;
-  roundRect(ctx, 1, 1, canvas.width - 2, totalH - 2, 8);
+  ctx.strokeStyle = "rgba(40,37,34,0.10)";
+  ctx.lineWidth = 1;
+  roundRect(ctx, 0.5, 0.5, canvas.width - 1, totalH - 1, PAPER_CORNER_R);
   ctx.stroke();
 
   return canvas.toDataURL("image/png");
 }
 
-function formatDate(): string {
+function formatDate(input?: string): string {
+  if (input) return input;
   const d = new Date();
-  const months = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+  const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
-export function downloadImage(dataUrl: string, filename = "duet-strip.png") {
+export async function downloadImage(src: string, filename = "duet-strip.png") {
+  let objectUrl: string | null = null;
+  let href = src;
+
+  try {
+    const res = await fetch(src);
+    const blob = await res.blob();
+    objectUrl = URL.createObjectURL(blob);
+    href = objectUrl;
+  } catch {
+    // Keep the original href as a last-resort fallback.
+  }
+
   const a = document.createElement("a");
-  a.href = dataUrl;
+  a.href = href;
   a.download = filename;
+  a.rel = "noopener";
   a.click();
+
+  if (objectUrl) {
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
 }

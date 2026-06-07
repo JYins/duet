@@ -1,5 +1,4 @@
-// post-processing effects: film grain + vignette
-// applied as a final pass on the composite strip
+// post-processing effects for the final strip.
 
 export function applyGrain(
   ctx: CanvasRenderingContext2D,
@@ -15,6 +14,29 @@ export function applyGrain(
     data[i] = Math.max(0, Math.min(255, data[i] + noise));
     data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
     data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+}
+
+export function applyPaperTexture(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  intensity = 0.018,
+) {
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const fiber = Math.sin(x * 0.18) * 0.35 + Math.sin((x + y) * 0.045) * 0.65;
+      const noise = (Math.random() - 0.5 + fiber * 0.16) * 255 * intensity;
+      data[i] = Math.max(0, Math.min(255, data[i] + noise));
+      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
+      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
+    }
   }
 
   ctx.putImageData(imageData, 0, 0);

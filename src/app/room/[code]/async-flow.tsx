@@ -1,33 +1,38 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Loader2, RefreshCw } from "lucide-react";
 import Image from "next/image";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Grid2X2, Loader2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
 import { useCamera } from "@/hooks/use-camera";
 import { useCountdown } from "@/hooks/use-countdown";
 import { useLocale } from "@/hooks/use-locale";
 import { captureFrame } from "@/lib/camera";
-import { generateStrip } from "@/lib/composite";
-import { LUT_CSS_FILTERS } from "@/lib/lut";
-import type { LutPreset } from "@/lib/lut";
-import type { Room, RoomParticipant } from "@/types/room";
-import type { FrameLayout } from "@/lib/composite";
+import { generateStrip, type FrameLayout } from "@/lib/composite";
+import { LUT_CSS_FILTERS, type LutPreset } from "@/lib/lut";
 import {
+  collectSubmittedPhotos,
+  getParticipants,
+  getRoomUrl,
   joinRoom,
+  markParticipantSubmitted,
+  markRoomComplete,
+  sortParticipants,
+  subscribeToRoom,
+  subscribeToParticipants,
   updateParticipant,
   uploadPhotos,
-  subscribeToParticipants,
-  getParticipants,
+  uploadResultStrip,
 } from "@/lib/rooms";
-import Viewfinder from "@/components/viewfinder";
-import CountdownOverlay from "@/components/countdown-overlay";
-import ShutterFlash from "@/components/shutter-flash";
+import type { CaptureShot } from "@/types/capture";
+import type { Room, RoomParticipant } from "@/types/room";
+import BottomControlDock from "@/components/bottom-control-dock";
+import CaptureStage from "@/components/capture-stage";
+import ParticipantStatusRail from "@/components/participant-status-rail";
+import PhotoStripPreview from "@/components/photo-strip-preview";
 import ShotCounter from "@/components/shot-counter";
 import StripResult from "@/components/strip-result";
-import LutPicker from "@/components/lut-picker";
 import WaitingRoom from "@/components/waiting-room";
-import { getRoomUrl } from "@/lib/rooms";
 
 const BETWEEN_SHOT_DELAY = 2000;
 
@@ -39,157 +44,233 @@ interface AsyncFlowProps {
 }
 
 export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
-  const { videoRef, ready, start, stop, flip } = useCamera();
+  const { videoRef, ready, error, facing, start, stop, flip } = useCamera();
   const { count, run: runCountdown } = useCountdown(5);
   const { t } = useLocale();
 
-  const [phase, setPhase] = useState<Phase>("join");
+  const existingResult = room.result_path || null;
+
+  const [phase, setPhase] = useState<Phase>(existingResult ? "done" : "join");
   const [displayName, setDisplayName] = useState("");
   const [myParticipant, setMyParticipant] = useState<RoomParticipant | null>(null);
   const [participants, setParticipants] = useState<RoomParticipant[]>([]);
+  const [shots, setShots] = useState<CaptureShot[]>([]);
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [shotCount, setShotCount] = useState(0);
   const [flash, setFlash] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   const [lastCapture, setLastCapture] = useState<string | null>(null);
-  const [countdownSec, setCountdownSec] = useState(5);
-  const [stripUrl, setStripUrl] = useState<string | null>(null);
-  const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
+  const [stripUrl, setStripUrl] = useState<string | null>(existingResult);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const photosRef = useRef<string[]>([]);
+  const compositingRef = useRef(false);
+  const captureRef = useRef(false);
+  const uploadRef = useRef(false);
+  const resultRef = useRef(existingResult);
   const lut = room.lut_preset as LutPreset;
+  const neededCount = myParticipant?.slot_count || 2;
+  const totalToTake = Math.max(neededCount + 2, neededCount);
+  const roomUrl = getRoomUrl(room.short_code);
 
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  // subscribe to participants
+  const compositeAll = useCallback(async (roomParticipants: RoomParticipant[]) => {
+    if (compositingRef.current) return;
+    if (resultRef.current) {
+      setStripUrl(resultRef.current);
+      setPhase("done");
+      return;
+    }
+    const photos = collectSubmittedPhotos(roomParticipants, room.participant_count);
+    if (!photos) return;
+    compositingRef.current = true;
+    setPhase("compositing");
+    try {
+      const strip = await generateStrip({
+        photos,
+        layout: room.layout as FrameLayout,
+        lut,
+        grain: true,
+        vignette: true,
+      });
+      let finalUrl = strip;
+      try {
+        const uploaded = await uploadResultStrip(room.id, strip);
+        finalUrl = uploaded;
+        const completed = await markRoomComplete(room.id, uploaded);
+        finalUrl = completed?.result_path || uploaded;
+        resultRef.current = finalUrl;
+      } catch {
+        setErrorMsg(t("error.cloudSync"));
+      }
+      setStripUrl(finalUrl);
+      setPhase("done");
+    } catch {
+      setErrorMsg(t("error.composite"));
+      setPhase("submitted");
+      compositingRef.current = false;
+    }
+  }, [lut, room.id, room.layout, room.participant_count, t]);
+
   useEffect(() => {
-    if (phase === "join") return;
-    getParticipants(room.id).then(setParticipants);
-    return subscribeToParticipants(room.id, (ps) => {
-      setParticipants(ps);
-      const allDone = ps.filter((p) => p.status === "submitted").length >= room.participant_count;
-      if (allDone && (phase === "submitted" || phase === "waiting")) {
-        compositeAll(ps);
+    return subscribeToRoom(room.id, (nextRoom) => {
+      if (nextRoom.result_path) {
+        resultRef.current = nextRoom.result_path;
+        setStripUrl(nextRoom.result_path);
+        setPhase("done");
       }
     });
-  }, [room.id, phase]);
+  }, [room.id]);
 
-  // join
+  useEffect(() => {
+    if (phase === "join") return;
+    getParticipants(room.id).then((roomParticipants) => {
+      const sorted = sortParticipants(roomParticipants);
+      setParticipants(sorted);
+      if (phase === "submitted" || phase === "waiting") void compositeAll(sorted);
+    });
+    return subscribeToParticipants(room.id, (roomParticipants) => {
+      const sorted = sortParticipants(roomParticipants);
+      setParticipants(sorted);
+      if (phase === "submitted" || phase === "waiting") void compositeAll(sorted);
+    });
+  }, [compositeAll, phase, room.id]);
+
   const handleJoin = useCallback(async () => {
+    setErrorMsg(null);
     try {
-      const me = await joinRoom(room.id, sessionId, displayName || "guest");
+      const me = await joinRoom(room.id, sessionId, displayName.trim() || t("join.guest"));
       setMyParticipant(me);
-      setPhase("waiting");
-    } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "failed to join");
+      setPhase(me.status === "submitted" ? "submitted" : "waiting");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : t("room.notFound"));
     }
-  }, [room.id, sessionId, displayName]);
+  }, [displayName, room.id, sessionId, t]);
 
-  // start shooting
   const startShooting = useCallback(async () => {
     if (!myParticipant) return;
-    start("user");
     await updateParticipant(myParticipant.id, { status: "shooting" });
+    start("user");
     setPhase("shooting");
   }, [myParticipant, start]);
 
-  // shoot
   const shoot = useCallback(async () => {
-    if (!videoRef.current || !ready || !myParticipant) return;
-    const needed = myParticipant.slot_count;
-    const total = Math.max(needed, needed + 2);
+    if (!videoRef.current || !ready || !myParticipant || phase !== "shooting") return;
+    if (captureRef.current) return;
+    captureRef.current = true;
+    setIsCapturing(true);
+    const captured: CaptureShot[] = [];
 
-    photosRef.current = [];
-    setShotCount(0);
+    try {
+      setShots([]);
+      setSelectedIndices([]);
+      setShotCount(0);
+      setLastCapture(null);
 
-    for (let i = 0; i < total; i++) {
-      await runCountdown(countdownSec);
-      setFlash(true);
-      const frame = captureFrame(videoRef.current);
-      photosRef.current.push(frame);
-      setShotCount(i + 1);
-      setLastCapture(frame);
-      await sleep(100);
-      setFlash(false);
-      if (i < total - 1) { await sleep(BETWEEN_SHOT_DELAY); setLastCapture(null); }
-    }
-    stop();
+      for (let i = 0; i < totalToTake; i++) {
+        await runCountdown(5);
+        setFlash(true);
+        const { raw, filtered } = captureFrame(
+          videoRef.current,
+          1080,
+          1440,
+          LUT_CSS_FILTERS[lut],
+          facing === "user",
+        );
+        const shot = { index: i, rawUrl: raw, filteredUrl: filtered, selected: i < neededCount };
+        captured.push(shot);
+        setShots([...captured]);
+        setShotCount(i + 1);
+        setLastCapture(filtered);
+        await sleep(100);
+        setFlash(false);
+        if (i < totalToTake - 1) {
+          await sleep(BETWEEN_SHOT_DELAY);
+          setLastCapture(null);
+        }
+      }
 
-    if (total <= needed) {
-      await submitPhotos(photosRef.current.slice(0, needed));
-    } else {
+      stop();
+      await updateParticipant(myParticipant.id, { status: "selecting" });
+      setSelectedIndices(captured.slice(0, neededCount).map((shot) => shot.index));
       setPhase("selecting");
+    } catch {
+      setFlash(false);
+      setErrorMsg(t("error.capture"));
+    } finally {
+      captureRef.current = false;
+      setIsCapturing(false);
     }
-  }, [ready, videoRef, runCountdown, countdownSec, stop, myParticipant]);
+  }, [facing, lut, myParticipant, neededCount, phase, ready, runCountdown, stop, t, totalToTake, videoRef]);
 
   const toggleSelect = useCallback((idx: number) => {
     setSelectedIndices((prev) => {
-      const needed = myParticipant?.slot_count || 2;
-      if (prev.includes(idx)) return prev.filter((i) => i !== idx);
-      if (prev.length >= needed) return prev;
+      if (prev.includes(idx)) return prev.filter((item) => item !== idx);
+      if (prev.length >= neededCount) return prev;
       return [...prev, idx];
     });
-  }, [myParticipant]);
+  }, [neededCount]);
 
-  const confirmSelection = useCallback(async () => {
-    await submitPhotos(selectedIndices.map((i) => photosRef.current[i]));
-  }, [selectedIndices]);
-
-  const submitPhotos = useCallback(async (photos: string[]) => {
-    if (!myParticipant) return;
+  const submitPhotos = useCallback(async () => {
+    if (!myParticipant || selectedIndices.length !== neededCount) return;
+    if (uploadRef.current) return;
+    uploadRef.current = true;
     setPhase("uploading");
+    setErrorMsg(null);
     try {
-      const urls = await uploadPhotos(room.id, myParticipant.id, photos);
-      await updateParticipant(myParticipant.id, { status: "submitted", photo_paths: urls });
+      const selected = selectedIndices
+        .map((idx) => shots.find((shot) => shot.index === idx)?.rawUrl)
+        .filter((src): src is string => Boolean(src));
+      if (selected.length < neededCount) {
+        throw new Error(t("error.selectPhotos"));
+      }
+      const urls = await uploadPhotos(room.id, myParticipant.id, selected);
+      await markParticipantSubmitted(myParticipant.id, urls);
       setPhase("submitted");
-    } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "upload failed");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : t("error.selectPhotos"));
+      setPhase("selecting");
+    } finally {
+      uploadRef.current = false;
     }
-  }, [room.id, myParticipant]);
-
-  const compositeAll = useCallback(async (ps: RoomParticipant[]) => {
-    setPhase("compositing");
-    const sorted = [...ps].sort((a, b) => a.slot_start - b.slot_start);
-    const allPhotos = sorted.flatMap((p) => p.photo_paths);
-    try {
-      const strip = await generateStrip({
-        photos: allPhotos,
-        layout: room.layout as FrameLayout,
-        lut,
-      });
-      setStripUrl(strip);
-      setPhase("done");
-    } catch {
-      setErrorMsg("compositing failed");
-    }
-  }, [room.layout, lut]);
-
-  const roomUrl = getRoomUrl(room.short_code);
+  }, [myParticipant, neededCount, room.id, selectedIndices, shots, t]);
 
   return (
     <AnimatePresence mode="wait">
-      {/* join screen */}
       {phase === "join" && (
-        <motion.div key="join" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-5">
-          <h2 className="font-serif text-xl italic text-[#2C2C2A]">Duet</h2>
-          <p className="text-xs text-[#8A8780]">{room.short_code} · {room.participant_count} {t("config.participants")}</p>
+        <motion.div key="join" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-5">
+          <h2 className="font-serif text-3xl italic text-[#2C2C2A]">Duet</h2>
+          <p className="text-xs text-[#8A8780]">
+            {t("shell.room")} {room.short_code} / {room.participant_count} {t("config.participants")}
+          </p>
           <input
             type="text"
             value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            onChange={(event) => setDisplayName(event.target.value)}
             placeholder={t("join.enterName")}
             maxLength={20}
-            className="w-48 rounded-full border border-[#2C2C2A]/[0.06] bg-[#FDFCF9] px-4 py-2.5 text-center text-xs text-[#2C2C2A] placeholder:text-[#DDD9D0] focus:border-[#D4A574]/30 focus:outline-none"
+            className="w-56 rounded-full border border-[#2C2C2A]/10 bg-[#FDFCF9] px-5 py-3 text-center text-[13px] text-[#2C2C2A] placeholder:text-[#B5B2AB] focus:border-[#D4A574]/40 focus:outline-none"
           />
-          <button onClick={handleJoin} disabled={!displayName.trim()} className="rounded-full bg-[#2C2C2A] px-6 py-2.5 text-xs tracking-wide text-[#F5F2EA] disabled:opacity-30">
+          <button
+            type="button"
+            onClick={handleJoin}
+            disabled={!displayName.trim()}
+            className="rounded-full bg-[#2C2C2A] px-7 py-3 text-[13px] font-medium text-[#F5F2EA] disabled:opacity-30"
+          >
             {t("join.join")}
           </button>
-          {errorMsg && <p className="text-xs text-red-500">{errorMsg}</p>}
+          {errorMsg && <p className="max-w-xs text-center text-xs text-[#C45B4A]">{errorMsg}</p>}
         </motion.div>
       )}
 
-      {/* waiting room */}
       {(phase === "waiting" || phase === "submitted") && (
-        <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.div key="waiting" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+          <ParticipantStatusRail
+            code={room.short_code}
+            participants={participants}
+            expectedCount={room.participant_count}
+            currentUserId={sessionId}
+          />
           <WaitingRoom
             roomUrl={roomUrl}
             roomCode={room.short_code}
@@ -198,71 +279,80 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
             currentUserId={sessionId}
             onStartShooting={phase === "waiting" && myParticipant?.status === "joined" ? startShooting : undefined}
           />
+          {errorMsg && <p className="max-w-xs text-center text-xs text-[#C45B4A]">{errorMsg}</p>}
         </motion.div>
       )}
 
-      {/* shooting */}
       {phase === "shooting" && (
-        <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <Viewfinder ref={videoRef} cssFilter={LUT_CSS_FILTERS[lut]} />
-            <CountdownOverlay count={count} />
-            <ShutterFlash flash={flash} />
-            <AnimatePresence>
-              {lastCapture && (
-                <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="absolute bottom-3 right-3 h-16 w-12 overflow-hidden rounded-md border-2 border-white/80 shadow-lg">
-                  <Image src={lastCapture} alt="last" fill className="object-cover" unoptimized />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          <ShotCounter total={myParticipant ? myParticipant.slot_count + 2 : 4} current={shotCount} />
-          <div className="flex items-center gap-5">
-            <button onClick={flip} disabled={shotCount > 0} className="flex h-9 w-9 items-center justify-center rounded-full border border-[#DDD9D0] text-[#2C2C2A]/60 disabled:opacity-30">
-              <RefreshCw size={15} />
-            </button>
-            <button onClick={shoot} disabled={!ready || shotCount > 0} className="group relative flex h-14 w-14 items-center justify-center rounded-full bg-[#2C2C2A] transition-all hover:scale-105 active:scale-95 disabled:opacity-30">
-              <span className="absolute inset-0 rounded-full border-2 border-[#2C2C2A]/20 group-hover:border-[#D4A574]/40" />
-              <Camera size={18} className="text-[#F5F2EA]" />
-            </button>
-            <div className="h-9 w-9" />
-          </div>
+        <motion.div key="camera" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col gap-4">
+          <ParticipantStatusRail
+            code={room.short_code}
+            participants={participants}
+            expectedCount={room.participant_count}
+            currentUserId={sessionId}
+          />
+          <CaptureStage
+            ref={videoRef}
+            ready={ready}
+            error={error}
+            mirrored={facing === "user"}
+            cssFilter={LUT_CSS_FILTERS[lut]}
+            count={count}
+            flash={flash}
+            hint={t("booth.tapToShoot")}
+            lastCapture={
+              lastCapture ? (
+                <div className="absolute bottom-4 right-4 z-10 h-20 w-[3.75rem] overflow-hidden rounded-xl border-2 border-white/85 shadow-lg">
+                  <Image src={lastCapture} alt={t("booth.lastCapture")} fill className="object-cover" unoptimized />
+                </div>
+              ) : null
+            }
+          />
+          <ShotCounter total={totalToTake} current={shotCount} />
+          <BottomControlDock
+            onShutter={shoot}
+            shutterDisabled={!ready || isCapturing}
+            tools={[
+              { id: "layout", label: t("booth.toolLayout"), value: room.layout, icon: <Grid2X2 size={22} strokeWidth={1.5} /> },
+              { id: "ghost", label: t("booth.toolTogether"), value: t("shell.room"), icon: <Wand2 size={22} strokeWidth={1.5} /> },
+              { id: "filter", label: t("booth.toolFilter"), value: lut, icon: <Sparkles size={22} strokeWidth={1.5} />, active: true },
+              { id: "flip", label: t("booth.toolFlip"), value: t("booth.toolLens"), icon: <RefreshCw size={22} strokeWidth={1.5} />, onClick: flip },
+            ]}
+          />
         </motion.div>
       )}
 
-      {/* selecting */}
       {phase === "selecting" && (
-        <motion.div key="select" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-5">
-          <p className="text-xs text-[#8A8780]">{t("booth.selectPhotos")} ({selectedIndices.length}/{myParticipant?.slot_count})</p>
-          <div className="grid grid-cols-4 gap-2">
-            {photosRef.current.map((src, i) => {
-              const selIdx = selectedIndices.indexOf(i);
-              return (
-                <button key={i} onClick={() => toggleSelect(i)} className={`relative aspect-[3/4] w-16 overflow-hidden rounded-md border-2 transition-all ${selIdx !== -1 ? "border-[#2C2C2A]" : "border-transparent opacity-50 hover:opacity-100"}`}>
-                  <Image src={src} alt={`${i}`} fill className="object-cover" unoptimized />
-                  {selIdx !== -1 && <div className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#2C2C2A] text-[9px] text-white">{selIdx + 1}</div>}
-                </button>
-              );
-            })}
+        <motion.div key="select" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col items-center justify-center gap-5">
+          <div className="text-center">
+            <p className="font-serif text-2xl italic text-[#2C2C2A]">{t("booth.selectPhotos")}</p>
+            <p className="mt-1 text-xs text-[#8A8780]">{selectedIndices.length}/{neededCount}</p>
           </div>
-          <button onClick={confirmSelection} disabled={selectedIndices.length !== (myParticipant?.slot_count || 2)} className="rounded-full bg-[#2C2C2A] px-6 py-2.5 text-xs text-[#F5F2EA] disabled:opacity-30">
+          <PhotoStripPreview shots={shots} selectedIndices={selectedIndices} onToggle={toggleSelect} neededCount={neededCount} />
+          <button
+            type="button"
+            onClick={submitPhotos}
+            disabled={selectedIndices.length !== neededCount}
+            className="rounded-full bg-[#2C2C2A] px-7 py-3 text-[13px] font-medium text-[#F5F2EA] disabled:opacity-30"
+          >
             {t("booth.confirmSelection")}
           </button>
         </motion.div>
       )}
 
-      {/* uploading / compositing */}
       {(phase === "uploading" || phase === "compositing") && (
-        <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-3">
-          <Loader2 size={20} className="animate-spin text-[#8A8780]" />
-          <p className="text-xs text-[#8A8780]">{phase === "uploading" ? t("room.uploading") : t("booth.compositing")}</p>
+        <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col items-center justify-center gap-3">
+          <Loader2 size={22} className="animate-spin text-[#8A8780]" />
+          <p className="text-xs tracking-wide text-[#8A8780]">
+            {phase === "uploading" ? t("room.uploading") : t("room.compositing")}
+          </p>
         </motion.div>
       )}
 
-      {/* done */}
       {phase === "done" && stripUrl && (
-        <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-5">
-          <StripResult stripUrl={stripUrl} onRetake={() => setPhase("join")} />
+        <motion.div key="result" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col items-center justify-center gap-5">
+          <StripResult stripUrl={stripUrl} />
+          {errorMsg && <p className="max-w-xs text-center text-xs text-[#C45B4A]">{errorMsg}</p>}
         </motion.div>
       )}
     </AnimatePresence>
