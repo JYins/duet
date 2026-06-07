@@ -258,6 +258,26 @@
     @apply border-dashed opacity-45;
   }
 
+  .strip-position-map {
+    @apply grid w-full max-w-[13.5rem] gap-1.5 rounded-2xl border border-[#2C2C2A]/10 bg-[#FDFCF9]/76 p-2 shadow-sm;
+  }
+
+  .strip-position-slot {
+    @apply relative aspect-[3/4] overflow-hidden rounded-lg border border-[#2C2C2A]/10 bg-[#EFEAE0] transition;
+  }
+
+  .strip-position-slot-active {
+    @apply border-[#D4A574] shadow-[0_0_0_2px_rgba(212,165,116,0.22)];
+  }
+
+  .strip-position-slot-empty {
+    @apply border-dashed opacity-45;
+  }
+
+  .strip-position-number {
+    @apply absolute left-1 top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#2C2C2A]/78 px-1 text-[8px] font-medium text-[#F5F2EA];
+  }
+
   .strip-order-tray {
     @apply flex w-full max-w-[22rem] gap-2 overflow-x-auto rounded-2xl border border-[#2C2C2A]/10 bg-[#FDFCF9]/70 p-2 shadow-sm;
   }
@@ -276,5 +296,49 @@
 
   .strip-order-move {
     @apply flex h-7 w-7 items-center justify-center rounded-full text-[#6F6A61] transition disabled:text-[#C9C4BA] enabled:hover:bg-[#EDE9DF];
+  }
+
+  .paper-picker {
+    @apply grid w-full grid-cols-3 gap-2 sm:grid-cols-4;
+  }
+
+  .paper-swatch {
+    @apply flex min-w-0 items-center gap-2 rounded-xl border border-[#2C2C2A]/10 bg-[#FDFCF9]/58 px-2.5 py-2 text-[10px] text-[#8A8780] transition;
+  }
+
+  .paper-swatch-active {
+    @apply border-[#2C2C2A]/28 bg-[#FDFCF9] text-[#2C2C2A] shadow-sm;
+  }
+
+  .paper-swatch-chip {
+    @apply relative h-5 w-5 shrink-0 overflow-hidden rounded-md border;
+  }
+
+  .paper-pattern-pearl::after {
+    content: "";
+    @apply absolute inset-0 opacity-45;
+    background-image: radial-gradient(currentColor 1px, transparent 1px);
+    background-size: 7px 7px;
+  }
+
+  .paper-pattern-corner::after,
+  .paper-pattern-ticket::after {
+    content: "";
+    @apply absolute inset-1 rounded-sm border border-current opacity-45;
+  }
+
+  .paper-pattern-check::after {
+    content: "";
+    @apply absolute inset-0 opacity-20;
+    background-image: linear-gradient(45deg, currentColor 25%, transparent 25%, transparent 75%, currentColor 75%), linear-gradient(45deg, currentColor 25%, transparent 25%, transparent 75%, currentColor 75%);
+    background-position: 0 0, 5px 5px;
+    background-size: 10px 10px;
+  }
+
+  .paper-pattern-night::after {
+    content: "";
+    @apply absolute inset-0 opacity-35;
+    background-image: linear-gradient(0deg, transparent 45%, currentColor 46%, currentColor 54%, transparent 55%);
+    background-size: 100% 6px;
   }
 }

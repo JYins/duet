@@ -11,6 +11,7 @@ import { captureFrame } from "@/lib/camera";
 import { generateStrip, getLayout, type FrameLayout } from "@/lib/composite";
 import type { LutPreset } from "@/lib/lut";
 import { LUT_CSS_FILTERS } from "@/lib/lut";
+import type { PaperStyleId } from "@/lib/paper-styles";
 import type { CaptureShot } from "@/types/capture";
 import BoothShell from "@/components/booth-shell";
 import BottomControlDock from "@/components/bottom-control-dock";
@@ -18,6 +19,7 @@ import CaptureStage from "@/components/capture-stage";
 import LabelInput from "@/components/label-input";
 import LayoutPicker from "@/components/layout-picker";
 import LutPicker from "@/components/lut-picker";
+import PaperPicker from "@/components/paper-picker";
 import ParticipantStatusRail from "@/components/participant-status-rail";
 import PhotoStripPreview from "@/components/photo-strip-preview";
 import ShotCounter from "@/components/shot-counter";
@@ -41,6 +43,7 @@ export default function BoothPage() {
   const [flash, setFlash] = useState(false);
   const [lut, setLut] = useState<LutPreset>("k-booth");
   const [frameLayout, setFrameLayout] = useState<FrameLayout>("1x4");
+  const [paperStyle, setPaperStyle] = useState<PaperStyleId>("porcelain");
   const [customLabel, setCustomLabel] = useState("");
   const [countdownSec, setCountdownSec] = useState(DEFAULT_COUNTDOWN);
   const [stripUrl, setStripUrl] = useState<string | null>(null);
@@ -48,14 +51,20 @@ export default function BoothPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const neededCount = getLayout(frameLayout).count;
+  const selectedUniqueIndices = useMemo(
+    () => selectedIndices.filter((index, i) => selectedIndices.indexOf(index) === i),
+    [selectedIndices],
+  );
+  const selectedCount = selectedUniqueIndices.length;
   const selectedShots = useMemo(() => {
-    const indices = selectedIndices.length > 0
-      ? selectedIndices
+    const indices = selectedUniqueIndices.length > 0
+      ? selectedUniqueIndices
       : shots.slice(0, neededCount).map((shot) => shot.index);
     return indices
+      .slice(0, neededCount)
       .map((index) => shots.find((shot) => shot.index === index))
       .filter((shot): shot is CaptureShot => Boolean(shot));
-  }, [neededCount, selectedIndices, shots]);
+  }, [neededCount, selectedUniqueIndices, shots]);
 
   useEffect(() => {
     start("user");
@@ -75,8 +84,9 @@ export default function BoothPage() {
       grain: true,
       vignette: true,
       label: customLabel || undefined,
+      paperStyle,
     });
-  }, [customLabel, frameLayout, lut, neededCount, selectedShots, t]);
+  }, [customLabel, frameLayout, lut, neededCount, paperStyle, selectedShots, t]);
 
   const shoot = useCallback(async () => {
     if (!videoRef.current || !ready || phase !== "ready") return;
@@ -129,8 +139,8 @@ export default function BoothPage() {
 
   const reorderSelection = useCallback((from: number, to: number) => {
     setSelectedIndices((prev) => {
-      if (to < 0 || to >= prev.length) return prev;
       const next = prev.filter((item, i) => prev.indexOf(item) === i);
+      if (to < 0 || to >= next.length) return next;
       const [item] = next.splice(from, 1);
       if (item === undefined) return prev;
       next.splice(to, 0, item);
@@ -138,8 +148,17 @@ export default function BoothPage() {
     });
   }, []);
 
+  const swapSelection = useCallback((a: number, b: number) => {
+    setSelectedIndices((prev) => {
+      const next = prev.filter((item, i) => prev.indexOf(item) === i);
+      if (a < 0 || b < 0 || a >= next.length || b >= next.length) return next;
+      [next[a], next[b]] = [next[b], next[a]];
+      return next;
+    });
+  }, []);
+
   const confirmSelection = useCallback(async () => {
-    if (selectedShots.length < neededCount) return;
+    if (selectedCount !== neededCount || selectedShots.length < neededCount) return;
     setPhase("processing");
     setErrorMsg(null);
     try {
@@ -150,10 +169,10 @@ export default function BoothPage() {
       setErrorMsg(t("error.composite"));
       setPhase("reviewing");
     }
-  }, [buildStrip, neededCount, selectedShots.length, t]);
+  }, [buildStrip, neededCount, selectedCount, selectedShots.length, t]);
 
   const regenerate = useCallback(async () => {
-    if (phase !== "done" || selectedShots.length < neededCount) return;
+    if (phase !== "done" || selectedCount !== neededCount || selectedShots.length < neededCount) return;
     setPhase("processing");
     setErrorMsg(null);
     try {
@@ -164,7 +183,7 @@ export default function BoothPage() {
       setErrorMsg(t("error.refreshStrip"));
       setPhase("done");
     }
-  }, [buildStrip, neededCount, phase, selectedShots.length, t]);
+  }, [buildStrip, neededCount, phase, selectedCount, selectedShots.length, t]);
 
   const retake = useCallback(() => {
     setShots([]);
@@ -182,10 +201,15 @@ export default function BoothPage() {
     const nextNeeded = getLayout(layout).count;
     setTotalShots((current) => Math.max(current, nextNeeded));
     setSelectedIndices((prev) => {
-      if (prev.length > nextNeeded) return prev.slice(0, nextNeeded);
-      return prev;
+      const unique = prev.filter((item, i) => prev.indexOf(item) === i && shots.some((shot) => shot.index === item));
+      const filled = [...unique];
+      for (const shot of shots) {
+        if (filled.length >= nextNeeded) break;
+        if (!filled.includes(shot.index)) filled.push(shot.index);
+      }
+      return filled.slice(0, nextNeeded);
     });
-  }, []);
+  }, [shots]);
 
   const step = phase === "done" ? "STEP 4 / 4" : phase === "reviewing" ? "STEP 3 / 4" : "STEP 2 / 4";
 
@@ -290,7 +314,7 @@ export default function BoothPage() {
             <div className="text-center">
               <p className="font-serif text-2xl italic text-[#2C2C2A]">{t("booth.selectPhotos")}</p>
               <p className="mt-1 text-xs text-[#8A8780]">
-                {selectedIndices.length}/{neededCount}
+                {selectedCount}/{neededCount}
               </p>
             </div>
             <PhotoStripPreview
@@ -298,15 +322,24 @@ export default function BoothPage() {
               selectedIndices={selectedIndices}
               onToggle={toggleSelect}
               onReorder={reorderSelection}
+              onSwap={swapSelection}
               neededCount={neededCount}
               slotStart={0}
+              layout={frameLayout}
+              showOrderTray={false}
             />
             <div className="space-y-3">
-              <LayoutPicker value={frameLayout} onChange={handleLayoutChange} />
+              <LayoutPicker
+                value={frameLayout}
+                onChange={handleLayoutChange}
+                options={["1x4", "2x2", "1x3", "2x3", "2x4", "3x3"].filter((layout) => (
+                  getLayout(layout as FrameLayout).count <= shots.length
+                )) as FrameLayout[]}
+              />
               <button
                 type="button"
                 onClick={confirmSelection}
-                disabled={selectedIndices.length !== neededCount}
+                disabled={selectedCount !== neededCount}
                 className="w-full rounded-full bg-[#2C2C2A] px-7 py-3 text-[13px] font-medium text-[#F5F2EA] disabled:opacity-30"
               >
                 {t("booth.confirmSelection")}
@@ -338,7 +371,7 @@ export default function BoothPage() {
           >
             <StripResult stripUrl={stripUrl} onRetake={retake} />
             <div className="w-full space-y-3 rounded-[1.25rem] border border-[#2C2C2A]/10 bg-[#FDFCF9]/60 p-4">
-              <LayoutPicker value={frameLayout} onChange={handleLayoutChange} />
+              <PaperPicker value={paperStyle} onChange={setPaperStyle} />
               <LutPicker value={lut} onChange={(preset) => setLut(preset)} />
               <div onBlur={regenerate}>
                 <LabelInput value={customLabel} onChange={setCustomLabel} />

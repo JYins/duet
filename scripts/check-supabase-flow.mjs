@@ -109,7 +109,7 @@ async function main() {
       participant_count: 2,
       background_id: "cream",
       label: "Flow Check",
-      paper_style: "blush",
+      paper_style: "ticket",
       status: "waiting",
       expires_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
     })

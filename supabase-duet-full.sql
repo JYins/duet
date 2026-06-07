@@ -56,7 +56,20 @@ WHERE paper_style IS NULL;
 
 ALTER TABLE public.rooms DROP CONSTRAINT IF EXISTS rooms_paper_style_check;
 ALTER TABLE public.rooms ADD CONSTRAINT rooms_paper_style_check
-  CHECK (paper_style IN ('porcelain', 'milk', 'blush', 'sage', 'sky', 'charcoal'));
+  CHECK (paper_style IN (
+    'porcelain',
+    'milk',
+    'blush',
+    'rose',
+    'butter',
+    'sage',
+    'mint',
+    'sky',
+    'lilac',
+    'pearl',
+    'ticket',
+    'charcoal'
+  ));
 
 CREATE INDEX IF NOT EXISTS idx_rooms_short_code ON public.rooms(short_code);
 CREATE INDEX IF NOT EXISTS idx_rooms_status_expires ON public.rooms(status, expires_at);

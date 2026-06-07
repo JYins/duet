@@ -1,6 +1,6 @@
 import { applyGrainToRect, applyPaperTexture, applyStudioFlashToRect, applyVignetteToRect } from "./effects";
 import { applyLutToRect, getLutByPreset, type LutPreset } from "./lut";
-import { getPaperStyle, type PaperStyleId } from "./paper-styles";
+import { getPaperStyle, type PaperStyle, type PaperStyleId } from "./paper-styles";
 
 export type FrameLayout = "1x4" | "2x2" | "1x3" | "2x3" | "2x4" | "3x3";
 
@@ -105,6 +105,82 @@ export function drawPaperBase(
   glow.addColorStop(1, "rgba(114,96,74,0.055)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, w, h);
+}
+
+export function drawPaperDesign(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  style: PaperStyle,
+) {
+  ctx.save();
+  ctx.globalAlpha = style.pattern === "night" ? 0.34 : 0.22;
+  ctx.strokeStyle = style.accent;
+  ctx.fillStyle = style.accent;
+
+  if (style.pattern === "pearl") {
+    for (let y = 26; y < h; y += 42) {
+      for (let x = 22; x < w; x += 42) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  if (style.pattern === "corner" || style.pattern === "ticket") {
+    ctx.lineWidth = 2;
+    const inset = 15;
+    const len = 44;
+    ctx.beginPath();
+    ctx.moveTo(inset, inset + len);
+    ctx.lineTo(inset, inset);
+    ctx.lineTo(inset + len, inset);
+    ctx.moveTo(w - inset - len, inset);
+    ctx.lineTo(w - inset, inset);
+    ctx.lineTo(w - inset, inset + len);
+    ctx.moveTo(inset, h - inset - len);
+    ctx.lineTo(inset, h - inset);
+    ctx.lineTo(inset + len, h - inset);
+    ctx.moveTo(w - inset - len, h - inset);
+    ctx.lineTo(w - inset, h - inset);
+    ctx.lineTo(w - inset, h - inset - len);
+    ctx.stroke();
+  }
+
+  if (style.pattern === "ticket") {
+    ctx.setLineDash([8, 8]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(STRIP_PAD * 0.72, h - 72);
+    ctx.lineTo(w - STRIP_PAD * 0.72, h - 72);
+    ctx.stroke();
+  }
+
+  if (style.pattern === "check") {
+    ctx.globalAlpha = 0.11;
+    const size = 30;
+    for (let y = 0; y < h; y += size) {
+      for (let x = 0; x < w; x += size) {
+        if ((x / size + y / size) % 2 === 0) {
+          ctx.fillRect(x, y, size, size);
+        }
+      }
+    }
+  }
+
+  if (style.pattern === "night") {
+    ctx.globalAlpha = 0.42;
+    ctx.lineWidth = 1;
+    for (let y = 24; y < h; y += 38) {
+      ctx.beginPath();
+      ctx.moveTo(18, y);
+      ctx.lineTo(w - 18, y);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
 }
 
 export function drawFrameFinish(
@@ -248,7 +324,8 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   } = opts;
 
   const cfg = getLayout(layout);
-  const paperColor = stripColor || getPaperStyle(paperStyle).color;
+  const paper = getPaperStyle(paperStyle);
+  const paperColor = stripColor || paper.color;
   if (photos.length < cfg.count) {
     throw new Error(`not enough photos for ${layout}: expected ${cfg.count}, got ${photos.length}`);
   }
@@ -266,6 +343,7 @@ export async function generateStrip(opts: CompositeOptions): Promise<string> {
   const ctx = canvas.getContext("2d")!;
 
   drawPaperBase(ctx, canvas.width, canvas.height, paperColor);
+  drawPaperDesign(ctx, canvas.width, canvas.height, paper);
 
   for (let i = 0; i < cfg.count; i++) {
     const col = i % cfg.cols;

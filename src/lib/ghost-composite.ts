@@ -5,6 +5,7 @@ import { getPaperStyle, type PaperStyleId } from "./paper-styles";
 import {
   drawCover,
   drawFrameFinish,
+  drawPaperDesign,
   drawPaperBase,
   drawPhotoMount,
   finishPhotoPrint,
@@ -251,8 +252,10 @@ export async function generateGhostStrip(opts: GhostCompositeOptions): Promise<s
   canvas.height = totalH;
   const ctx = canvas.getContext("2d")!;
 
-  const paperColor = getPaperStyle(paperStyle).color;
+  const paper = getPaperStyle(paperStyle);
+  const paperColor = paper.color;
   drawPaperBase(ctx, canvas.width, canvas.height, paperColor);
+  drawPaperDesign(ctx, canvas.width, canvas.height, paper);
 
   const bg = BACKGROUNDS.find((item) => item.id === backgroundId) || BACKGROUNDS[0];
   let bgImg: HTMLImageElement | null = null;

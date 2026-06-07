@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Grid2X2, Loader2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
 import { useCamera } from "@/hooks/use-camera";
@@ -72,6 +72,11 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
   const resultRef = useRef(existingResult);
   const lut = room.lut_preset as LutPreset;
   const neededCount = myParticipant?.slot_count || 2;
+  const selectedUniqueIndices = useMemo(
+    () => selectedIndices.filter((index, i) => selectedIndices.indexOf(index) === i),
+    [selectedIndices],
+  );
+  const selectedCount = selectedUniqueIndices.length;
   const totalToTake = Math.max(neededCount + 2, neededCount);
   const roomUrl = getRoomUrl(room.short_code);
 
@@ -216,8 +221,8 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
 
   const reorderSelection = useCallback((from: number, to: number) => {
     setSelectedIndices((prev) => {
-      if (to < 0 || to >= prev.length) return prev;
       const next = prev.filter((item, i) => prev.indexOf(item) === i);
+      if (to < 0 || to >= next.length) return next;
       const [item] = next.splice(from, 1);
       if (item === undefined) return prev;
       next.splice(to, 0, item);
@@ -225,14 +230,23 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
     });
   }, []);
 
+  const swapSelection = useCallback((a: number, b: number) => {
+    setSelectedIndices((prev) => {
+      const next = prev.filter((item, i) => prev.indexOf(item) === i);
+      if (a < 0 || b < 0 || a >= next.length || b >= next.length) return next;
+      [next[a], next[b]] = [next[b], next[a]];
+      return next;
+    });
+  }, []);
+
   const submitPhotos = useCallback(async () => {
-    if (!myParticipant || selectedIndices.length !== neededCount) return;
+    if (!myParticipant || selectedCount !== neededCount) return;
     if (uploadRef.current) return;
     uploadRef.current = true;
     setPhase("uploading");
     setErrorMsg(null);
     try {
-      const selected = selectedIndices
+      const selected = selectedUniqueIndices
         .map((idx) => shots.find((shot) => shot.index === idx)?.rawUrl)
         .filter((src): src is string => Boolean(src));
       if (selected.length < neededCount) {
@@ -247,7 +261,7 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
     } finally {
       uploadRef.current = false;
     }
-  }, [myParticipant, neededCount, room.id, selectedIndices, shots, t]);
+  }, [myParticipant, neededCount, room.id, selectedCount, selectedUniqueIndices, shots, t]);
 
   const retakeSubmitted = useCallback(async () => {
     if (!myParticipant || uploadRef.current || captureRef.current || resultRef.current) return;
@@ -363,20 +377,23 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
         <motion.div key="select" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col items-center justify-center gap-5">
           <div className="text-center">
             <p className="font-serif text-2xl italic text-[#2C2C2A]">{t("booth.selectPhotos")}</p>
-            <p className="mt-1 text-xs text-[#8A8780]">{selectedIndices.length}/{neededCount}</p>
+            <p className="mt-1 text-xs text-[#8A8780]">{selectedCount}/{neededCount}</p>
           </div>
           <PhotoStripPreview
             shots={shots}
             selectedIndices={selectedIndices}
             onToggle={toggleSelect}
             onReorder={reorderSelection}
+            onSwap={swapSelection}
             neededCount={neededCount}
             slotStart={myParticipant?.slot_start || 0}
+            layout={room.layout as FrameLayout}
+            showOrderTray={false}
           />
           <button
             type="button"
             onClick={submitPhotos}
-            disabled={selectedIndices.length !== neededCount}
+            disabled={selectedCount !== neededCount}
             className="rounded-full bg-[#2C2C2A] px-7 py-3 text-[13px] font-medium text-[#F5F2EA] disabled:opacity-30"
           >
             {t("booth.confirmSelection")}

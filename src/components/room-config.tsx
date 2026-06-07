@@ -6,10 +6,11 @@ import { ArrowRight } from "lucide-react";
 import { useLocale } from "@/hooks/use-locale";
 import { getLayout, type FrameLayout } from "@/lib/composite";
 import type { LutPreset } from "@/lib/lut";
-import { PAPER_STYLES, type PaperStyleId } from "@/lib/paper-styles";
+import type { PaperStyleId } from "@/lib/paper-styles";
 import type { RoomMode } from "@/types/room";
 import LayoutPicker from "./layout-picker";
 import LutPicker from "./lut-picker";
+import PaperPicker from "./paper-picker";
 import BgPicker from "./bg-picker";
 import type { Background } from "@/lib/backgrounds";
 
@@ -102,26 +103,7 @@ export default function RoomConfig({ mode, onConfirm }: RoomConfigProps) {
         <span className="text-[10px] tracking-wide text-[#8A8780] uppercase">
           {t("config.paper")}
         </span>
-        <div className="grid w-full grid-cols-3 gap-2">
-          {PAPER_STYLES.map((style) => (
-            <button
-              key={style.id}
-              type="button"
-              onClick={() => setPaperStyle(style.id)}
-              className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 text-[11px] transition ${
-                paperStyle === style.id
-                  ? "border-[#2C2C2A]/30 bg-[#FDFCF9] text-[#2C2C2A]"
-                  : "border-[#2C2C2A]/10 text-[#8A8780]"
-              }`}
-            >
-              <span
-                className="h-4 w-4 rounded-full border border-[#2C2C2A]/10"
-                style={{ backgroundColor: style.color }}
-              />
-              <span className="truncate">{style.label}</span>
-            </button>
-          ))}
-        </div>
+        <PaperPicker value={paperStyle} onChange={setPaperStyle} />
       </div>
 
       <input
