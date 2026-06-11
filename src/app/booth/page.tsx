@@ -12,6 +12,13 @@ import { generateStrip, getLayout, type FrameLayout } from "@/lib/composite";
 import type { LutPreset } from "@/lib/lut";
 import { LUT_CSS_FILTERS } from "@/lib/lut";
 import type { PaperStyleId } from "@/lib/paper-styles";
+import {
+  fitSelectionToCount,
+  moveSelection,
+  swapSelection as swapSelectionOrder,
+  toggleSelection,
+  uniqueSelection,
+} from "@/lib/selection";
 import type { CaptureShot } from "@/types/capture";
 import BoothShell from "@/components/booth-shell";
 import BottomControlDock from "@/components/bottom-control-dock";
@@ -52,7 +59,7 @@ export default function BoothPage() {
 
   const neededCount = getLayout(frameLayout).count;
   const selectedUniqueIndices = useMemo(
-    () => selectedIndices.filter((index, i) => selectedIndices.indexOf(index) === i),
+    () => uniqueSelection(selectedIndices),
     [selectedIndices],
   );
   const selectedCount = selectedUniqueIndices.length;
@@ -72,7 +79,11 @@ export default function BoothPage() {
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  const buildStrip = useCallback(async () => {
+  const buildStrip = useCallback(async (overrides?: {
+    lut?: LutPreset;
+    paperStyle?: PaperStyleId;
+    label?: string;
+  }) => {
     const photos = selectedShots.map((shot) => shot.rawUrl);
     if (photos.length < neededCount) {
       throw new Error(t("error.selectPhotos"));
@@ -80,11 +91,11 @@ export default function BoothPage() {
     return generateStrip({
       photos: photos.slice(0, neededCount),
       layout: frameLayout,
-      lut,
+      lut: overrides?.lut ?? lut,
       grain: true,
       vignette: true,
-      label: customLabel || undefined,
-      paperStyle,
+      label: (overrides?.label ?? customLabel) || undefined,
+      paperStyle: overrides?.paperStyle ?? paperStyle,
     });
   }, [customLabel, frameLayout, lut, neededCount, paperStyle, selectedShots, t]);
 
@@ -129,32 +140,15 @@ export default function BoothPage() {
   }, [countdownSec, facing, lut, neededCount, phase, ready, runCountdown, stop, totalShots, videoRef]);
 
   const toggleSelect = useCallback((idx: number) => {
-    setSelectedIndices((prev) => {
-      const unique = prev.filter((item, i) => prev.indexOf(item) === i);
-      if (unique.includes(idx)) return unique.filter((item) => item !== idx);
-      if (unique.length >= neededCount) return unique;
-      return [...unique, idx];
-    });
+    setSelectedIndices((prev) => toggleSelection(prev, idx, neededCount));
   }, [neededCount]);
 
   const reorderSelection = useCallback((from: number, to: number) => {
-    setSelectedIndices((prev) => {
-      const next = prev.filter((item, i) => prev.indexOf(item) === i);
-      if (to < 0 || to >= next.length) return next;
-      const [item] = next.splice(from, 1);
-      if (item === undefined) return prev;
-      next.splice(to, 0, item);
-      return next;
-    });
+    setSelectedIndices((prev) => moveSelection(prev, from, to));
   }, []);
 
   const swapSelection = useCallback((a: number, b: number) => {
-    setSelectedIndices((prev) => {
-      const next = prev.filter((item, i) => prev.indexOf(item) === i);
-      if (a < 0 || b < 0 || a >= next.length || b >= next.length) return next;
-      [next[a], next[b]] = [next[b], next[a]];
-      return next;
-    });
+    setSelectedIndices((prev) => swapSelectionOrder(prev, a, b));
   }, []);
 
   const confirmSelection = useCallback(async () => {
@@ -171,12 +165,16 @@ export default function BoothPage() {
     }
   }, [buildStrip, neededCount, selectedCount, selectedShots.length, t]);
 
-  const regenerate = useCallback(async () => {
+  const regenerate = useCallback(async (overrides?: {
+    lut?: LutPreset;
+    paperStyle?: PaperStyleId;
+    label?: string;
+  }) => {
     if (phase !== "done" || selectedCount !== neededCount || selectedShots.length < neededCount) return;
     setPhase("processing");
     setErrorMsg(null);
     try {
-      const strip = await buildStrip();
+      const strip = await buildStrip(overrides);
       setStripUrl(strip);
       setPhase("done");
     } catch {
@@ -201,15 +199,19 @@ export default function BoothPage() {
     const nextNeeded = getLayout(layout).count;
     setTotalShots((current) => Math.max(current, nextNeeded));
     setSelectedIndices((prev) => {
-      const unique = prev.filter((item, i) => prev.indexOf(item) === i && shots.some((shot) => shot.index === item));
-      const filled = [...unique];
-      for (const shot of shots) {
-        if (filled.length >= nextNeeded) break;
-        if (!filled.includes(shot.index)) filled.push(shot.index);
-      }
-      return filled.slice(0, nextNeeded);
+      return fitSelectionToCount(prev, shots.map((shot) => shot.index), nextNeeded);
     });
   }, [shots]);
+
+  const tunePaper = useCallback((nextStyle: PaperStyleId) => {
+    setPaperStyle(nextStyle);
+    void regenerate({ paperStyle: nextStyle });
+  }, [regenerate]);
+
+  const tuneLut = useCallback((nextLut: LutPreset) => {
+    setLut(nextLut);
+    void regenerate({ lut: nextLut });
+  }, [regenerate]);
 
   const step = phase === "done" ? "STEP 4 / 4" : phase === "reviewing" ? "STEP 3 / 4" : "STEP 2 / 4";
 
@@ -371,14 +373,14 @@ export default function BoothPage() {
           >
             <StripResult stripUrl={stripUrl} onRetake={retake} />
             <div className="w-full space-y-3 rounded-[1.25rem] border border-[#2C2C2A]/10 bg-[#FDFCF9]/60 p-4">
-              <PaperPicker value={paperStyle} onChange={setPaperStyle} />
-              <LutPicker value={lut} onChange={(preset) => setLut(preset)} />
-              <div onBlur={regenerate}>
+              <PaperPicker value={paperStyle} onChange={tunePaper} />
+              <LutPicker value={lut} onChange={tuneLut} />
+              <div onBlur={() => void regenerate()}>
                 <LabelInput value={customLabel} onChange={setCustomLabel} />
               </div>
               <button
                 type="button"
-                onClick={regenerate}
+                onClick={() => void regenerate()}
                 className="mx-auto flex items-center gap-2 rounded-full border border-[#D4A574]/30 px-5 py-2 text-[12px] text-[#A97841]"
               >
                 <Timer size={14} strokeWidth={1.5} />

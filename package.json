@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:ui": "node scripts/check-ui-contracts.mjs",
     "check:supabase": "node scripts/check-supabase-health.mjs",
     "check:supabase:flow": "node scripts/check-supabase-flow.mjs"
   },

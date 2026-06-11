@@ -47,6 +47,7 @@ export default function WaitingRoom({
   const me = participants.find((p) => p.user_id === currentUserId);
   const canShoot = me && me.status === "joined";
   const canRetake = !allSubmitted && me?.status === "submitted" && Boolean(onRetake);
+  const progress = Math.min(1, submittedCount / Math.max(1, expectedCount));
 
   return (
     <motion.div
@@ -60,6 +61,13 @@ export default function WaitingRoom({
         <span className="text-[10px] uppercase tracking-[0.12em] text-[#B5B2AB]">
           {t("waiting.participants")} ({participants.length}/{expectedCount})
         </span>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#E8E1D5]">
+          <motion.div
+            initial={false}
+            animate={{ width: `${progress * 100}%` }}
+            className="h-full rounded-full bg-[#D4A574]"
+          />
+        </div>
 
         <div className="flex w-full flex-col gap-1.5">
           {participants.map((participant) => {

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getLayout, type FrameLayout } from "@/lib/composite";
+import { uniqueSelection } from "@/lib/selection";
 import type { CaptureShot } from "@/types/capture";
 
 interface PhotoStripPreviewProps {
@@ -31,7 +32,7 @@ export default function PhotoStripPreview({
 }: PhotoStripPreviewProps) {
   const [armedSlot, setArmedSlot] = useState<number | null>(null);
   const interactive = Boolean(onToggle);
-  const uniqueSelected = selectedIndices.filter((idx, i) => selectedIndices.indexOf(idx) === i);
+  const uniqueSelected = uniqueSelection(selectedIndices);
   const layoutCfg = layout ? getLayout(layout) : null;
   const selectedShots = uniqueSelected
     .map((idx) => shots.find((shot) => shot.index === idx))

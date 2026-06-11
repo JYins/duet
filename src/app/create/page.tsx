@@ -12,6 +12,13 @@ import { useSessionId } from "@/hooks/use-session-id";
 import { captureFrame } from "@/lib/camera";
 import { generateStrip } from "@/lib/composite";
 import { LUT_CSS_FILTERS, type LutPreset } from "@/lib/lut";
+import type { PaperStyleId } from "@/lib/paper-styles";
+import {
+  moveSelection,
+  swapSelection as swapSelectionOrder,
+  toggleSelection,
+  uniqueSelection,
+} from "@/lib/selection";
 import {
   buildParticipantLabel,
   collectSubmittedPhotos,
@@ -35,10 +42,12 @@ import type { CaptureShot } from "@/types/capture";
 import BoothShell from "@/components/booth-shell";
 import BottomControlDock from "@/components/bottom-control-dock";
 import CaptureStage from "@/components/capture-stage";
+import LabelInput from "@/components/label-input";
 import LutPicker from "@/components/lut-picker";
 import ModePicker from "@/components/mode-picker";
 import ParticipantStatusRail from "@/components/participant-status-rail";
 import PhotoStripPreview from "@/components/photo-strip-preview";
+import PaperPicker from "@/components/paper-picker";
 import RoomConfig, { type RoomSettings } from "@/components/room-config";
 import ShareCard from "@/components/share-card";
 import ShotCounter from "@/components/shot-counter";
@@ -91,7 +100,7 @@ export default function CreatePage() {
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const neededCount = myParticipant?.slot_count || 4;
   const selectedUniqueIndices = useMemo(
-    () => selectedIndices.filter((index, i) => selectedIndices.indexOf(index) === i),
+    () => uniqueSelection(selectedIndices),
     [selectedIndices],
   );
   const selectedCount = selectedUniqueIndices.length;
@@ -253,32 +262,15 @@ export default function CreatePage() {
   }, [countdownSec, facing, lut, myParticipant, neededCount, phase, ready, runCountdown, stop, t, videoRef]);
 
   const toggleSelect = useCallback((idx: number) => {
-    setSelectedIndices((prev) => {
-      const unique = prev.filter((item, i) => prev.indexOf(item) === i);
-      if (unique.includes(idx)) return unique.filter((item) => item !== idx);
-      if (unique.length >= neededCount) return unique;
-      return [...unique, idx];
-    });
+    setSelectedIndices((prev) => toggleSelection(prev, idx, neededCount));
   }, [neededCount]);
 
   const reorderSelection = useCallback((from: number, to: number) => {
-    setSelectedIndices((prev) => {
-      const next = prev.filter((item, i) => prev.indexOf(item) === i);
-      if (to < 0 || to >= next.length) return next;
-      const [item] = next.splice(from, 1);
-      if (item === undefined) return prev;
-      next.splice(to, 0, item);
-      return next;
-    });
+    setSelectedIndices((prev) => moveSelection(prev, from, to));
   }, []);
 
   const swapSelection = useCallback((a: number, b: number) => {
-    setSelectedIndices((prev) => {
-      const next = prev.filter((item, i) => prev.indexOf(item) === i);
-      if (a < 0 || b < 0 || a >= next.length || b >= next.length) return next;
-      [next[a], next[b]] = [next[b], next[a]];
-      return next;
-    });
+    setSelectedIndices((prev) => swapSelectionOrder(prev, a, b));
   }, []);
 
   const submitPhotos = useCallback(async () => {
@@ -343,25 +335,39 @@ export default function CreatePage() {
     setLastCapture(null);
   }, []);
 
-  const regrade = useCallback(async (preset: LutPreset) => {
-    if (!settings || phase !== "done") return;
-    const nextSettings = { ...settings, lut: preset };
+  const refreshResult = useCallback(async (nextSettings: RoomSettings) => {
+    if (phase !== "done") return;
     setSettings(nextSettings);
-    const photos = collectSubmittedPhotos(participants, settings.participantCount);
+    const photos = collectSubmittedPhotos(participants, nextSettings.participantCount);
     if (!photos) return;
     setPhase("compositing");
     const strip = await generateStrip({
       photos,
-      layout: settings.layout,
-      lut: preset,
+      layout: nextSettings.layout,
+      lut: nextSettings.lut,
       grain: true,
       vignette: true,
-      label: buildParticipantLabel(participants, settings.label),
-      paperStyle: settings.paperStyle,
+      label: buildParticipantLabel(participants, nextSettings.label),
+      paperStyle: nextSettings.paperStyle,
     });
     setStripUrl(strip);
     setPhase("done");
-  }, [participants, phase, settings]);
+  }, [participants, phase]);
+
+  const tuneResultLut = useCallback((preset: LutPreset) => {
+    if (!settings) return;
+    void refreshResult({ ...settings, lut: preset });
+  }, [refreshResult, settings]);
+
+  const tuneResultPaper = useCallback((paperStyle: PaperStyleId) => {
+    if (!settings) return;
+    void refreshResult({ ...settings, paperStyle });
+  }, [refreshResult, settings]);
+
+  const updateResultLabel = useCallback((label: string) => {
+    if (!settings) return;
+    setSettings({ ...settings, label });
+  }, [settings]);
 
   const title = phase === "done" ? t("create.yourDuet") : t("create.title");
 
@@ -511,7 +517,22 @@ export default function CreatePage() {
         {phase === "done" && stripUrl && (
           <motion.div key="result" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-1 flex-col items-center justify-center gap-5">
             <StripResult stripUrl={stripUrl} onRetake={retake} />
-            <LutPicker value={settings?.lut || "k-booth"} onChange={regrade} />
+            {settings && (
+              <div className="w-full space-y-3 rounded-[1.25rem] border border-[#2C2C2A]/10 bg-[#FDFCF9]/60 p-4">
+                <PaperPicker value={settings.paperStyle} onChange={tuneResultPaper} />
+                <LutPicker value={settings.lut} onChange={tuneResultLut} />
+                <div onBlur={() => void refreshResult(settings)}>
+                  <LabelInput value={settings.label} onChange={updateResultLabel} />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void refreshResult(settings)}
+                  className="mx-auto flex items-center gap-2 rounded-full border border-[#D4A574]/30 px-5 py-2 text-[12px] text-[#A97841]"
+                >
+                  {t("booth.refreshStrip")}
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

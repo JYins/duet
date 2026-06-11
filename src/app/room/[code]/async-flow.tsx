@@ -11,6 +11,12 @@ import { captureFrame } from "@/lib/camera";
 import { generateStrip, type FrameLayout } from "@/lib/composite";
 import { LUT_CSS_FILTERS, type LutPreset } from "@/lib/lut";
 import {
+  moveSelection,
+  swapSelection as swapSelectionOrder,
+  toggleSelection,
+  uniqueSelection,
+} from "@/lib/selection";
+import {
   buildParticipantLabel,
   collectSubmittedPhotos,
   getParticipants,
@@ -73,7 +79,7 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
   const lut = room.lut_preset as LutPreset;
   const neededCount = myParticipant?.slot_count || 2;
   const selectedUniqueIndices = useMemo(
-    () => selectedIndices.filter((index, i) => selectedIndices.indexOf(index) === i),
+    () => uniqueSelection(selectedIndices),
     [selectedIndices],
   );
   const selectedCount = selectedUniqueIndices.length;
@@ -211,32 +217,15 @@ export default function AsyncFlow({ room, sessionId }: AsyncFlowProps) {
   }, [facing, lut, myParticipant, neededCount, phase, ready, runCountdown, stop, t, totalToTake, videoRef]);
 
   const toggleSelect = useCallback((idx: number) => {
-    setSelectedIndices((prev) => {
-      const unique = prev.filter((item, i) => prev.indexOf(item) === i);
-      if (unique.includes(idx)) return unique.filter((item) => item !== idx);
-      if (unique.length >= neededCount) return unique;
-      return [...unique, idx];
-    });
+    setSelectedIndices((prev) => toggleSelection(prev, idx, neededCount));
   }, [neededCount]);
 
   const reorderSelection = useCallback((from: number, to: number) => {
-    setSelectedIndices((prev) => {
-      const next = prev.filter((item, i) => prev.indexOf(item) === i);
-      if (to < 0 || to >= next.length) return next;
-      const [item] = next.splice(from, 1);
-      if (item === undefined) return prev;
-      next.splice(to, 0, item);
-      return next;
-    });
+    setSelectedIndices((prev) => moveSelection(prev, from, to));
   }, []);
 
   const swapSelection = useCallback((a: number, b: number) => {
-    setSelectedIndices((prev) => {
-      const next = prev.filter((item, i) => prev.indexOf(item) === i);
-      if (a < 0 || b < 0 || a >= next.length || b >= next.length) return next;
-      [next[a], next[b]] = [next[b], next[a]];
-      return next;
-    });
+    setSelectedIndices((prev) => swapSelectionOrder(prev, a, b));
   }, []);
 
   const submitPhotos = useCallback(async () => {
